@@ -1,5 +1,10 @@
 # Raspberry Pi SIM800L GSM module
 
+[![PyPI](https://img.shields.io/pypi/v/sim800l-gsm-module.svg?maxAge=2592000)](https://pypi.org/project/sim800l-gsm-module)
+[![Python Versions](https://img.shields.io/pypi/pyversions/sim800l-gsm-module.svg)](https://pypi.org/project/sim800l-gsm-module/)
+[![PyPI download month](https://img.shields.io/pypi/dm/sim800l-gsm-module.svg)](https://pypi.python.org/pypi/sim800l-gsm-module/)
+[![GitHub license](https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-blue)](https://raw.githubusercontent.com/Ircama/raspberry-pi-sim800l-gsm-module/master/LICENSE)
+
 [SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi.
 
 This library interfaces the SIM800L GSM device and allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module.
