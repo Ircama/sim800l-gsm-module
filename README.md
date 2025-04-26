@@ -7,11 +7,26 @@
 
 [SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi.
 
-This library interfaces the SIM800L GSM device and allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module.
+This library driver interfaces with the SIM800L GSM module using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default: PDU).
+
+## AT Protocol issues
+
+This software manages SMS messaging and HTTP operations via the asyncronous serial communication of the SIM800 device, using its proprietary AT command protocol.
+
+The AT command protocol is fundamentally inadequate for reliable and verifiable communication and presents intrinsic limitations when employed for robust operations. Originally designed for simple control of modems, the AT protocol is inherently textual and lacks the formal structure of communication protocols that utilize packetized data exchange.
+
+One critical drawback lies in the nature of message formatting. AT commands are plain-text strings without explicit framing mechanisms. Unlike packet-based protocols, AT messages do not encapsulate data within headers that define payload length, type, or integrity information such as checksums or CRCs. Consequently, parsing and verifying the completeness and correctness of messages becomes error-prone.
+
+Moreover, AT-based communication lacks a standardized state machine or signaling mechanisms to indicate distinct phases of a connection lifecycle. Commands that initiate, maintain, or terminate connections must be issued and interpreted in a predefined order, but the protocol itself does not return the transition between these states. This absence of inherent session management results in brittle implementations, where the client must continually probe the status of operations.
+
+This deficiency becomes even more critical with vendor-specific instructions, which introduce proprietary connection setup sequences requiring polling or conditional branching based on context-sensitive responses, and may also include asynchronous "Unsolicited Result Codes" within the textual communication that needs special processing while managing the workflow. Without structured feedback or flags denoting session phases, the client application must rely on loosely coupled, often ambiguous responses to maintain protocol correctness.
+
+Through an accurately tested heuristic approach, this software attempts to handle all supported operations via the AT protocol in the most robust manner possible, aiming to automatically recover from errors when feasible.
 
 ## Setup
 
 ## Hw Requirements
+
 - Linux system with a UART serial port, or Raspberry Pi with [Raspberry Pi OS](https://en.wikipedia.org/wiki/Raspberry_Pi_OS) (this library has been tested with Buster and Bullseye).
 - External power supply for the SIM800L (using the Raspberry Pi 5V power supply, a standard diode (1N4007) with voltage drop of about 0.6 volts and a 2200 uF capacitor might work).
 
@@ -76,8 +91,6 @@ print("Unit Name:", sim800l.get_unit_name())
 
 ## API Documentation
 
-Tested with SIM800L firmware Revision:[1418B05SIM800L24](https://github.com/geekmatic/SIM800_firmware_updates) (SIM800L R14.18, Build 05).
-
 SIM800 does not support AT+HTTPSSL on firmware release <R14.00 (e.g., 1308B08SIM800L16 -> SIM800L R13.08 Build 08).
 
 For debugging needs, logs can be set to the maximum level (verbose mode, tracing each request/response) with the following command:
@@ -89,37 +102,218 @@ logging.getLogger().setLevel(5)`
 
 ---
 
-#### `sim800l = SIM800L(port='/dev/serial0', baudrate=115000, timeout=3.0)`
+#### `sim800l = SIM800L(port="/dev/serial0", baudrate=115000, timeout=3.0, write_timeout=300, inter_byte_timeout=10, mode="PDU")`
+
 Class instantiation (using [pySerial](https://github.com/pyserial/pyserial))
-- `port`: port name
-- `baudrate`: baudrate in bps
-- `timeout`: timeout in seconds
+
+**Parameters:**
+- `port` (str): Serial port (e.g., `/dev/serial0`).
+- `baudrate` (int): Baud rate (default: 115000).
+- `timeout` (float): Read timeout in seconds.
+- `write_timeout` (int): Write timeout in seconds.
+- `inter_byte_timeout` (int): Timeout between bytes during read.
+- `mode` (str): SMS mode (`TEXT`, `HEX`, or `PDU`).
 
 ---
 
 #### `check_sim()`
-Check whether the SIM card has been inserted.
- *return*: `True` if the SIM is inserted, otherwise `False`. `None` in case of module error.
+Checks if a SIM card is inserted.
+
+**Returns:**  
+- `True`: SIM inserted.
+- `False`: SIM not inserted.
+- `None`: Module error.
+
+#### `get_date()`
+Retrieves the module's internal clock date.
+
+**Returns:**  
+- `datetime.datetime`: Current date/time.
+- `None`: Module error.
 
 ---
 
-#### `command(cmdstr, lines=1, waitfor=500, msgtext=None, flush_input=True)`
+#### `is_registered()`
+Checks if the SIM is registered on the home network.
+
+**Returns:**  
+- `True`: Registered.
+- `False`: Not registered.
+- `None`: Module error.
+
+---
+
+#### `get_operator()`
+Gets the current network operator.
+
+**Returns:**  
+- `str`: Operator name.
+- `False`: SIM error.
+- `None`: Module error.
+
+---
+
+#### `get_battery_voltage()`
+
+Returns battery voltage in volts.
+
+Example: 4.158
+
+**Returns:**  
+- `float`: Voltage.
+- `None`: Module error.
+
+---
+
+#### `send_sms(destno, msgtext, ...)`
+Sends an SMS.
+
+**Parameters:**
+- `destno` (str): Destination phone number.
+- `msgtext` (str): Message content.
+- `validity` (int): SMS validity period (PDU mode).
+- `smsc` (str): SMSC number (PDU mode).
+- `requestStatusReport` (bool): Request delivery report.
+- `rejectDuplicates` (bool): Reject duplicate messages.
+- `sendFlash` (bool): Send as flash SMS.
+
+**Returns:**  
+- `True`: SMS sent successfully.
+- `False`: Failed to send.
+
+---
+
+#### `connect_gprs(apn)`
+Activates GPRS PDP context.
+
+**Parameters:**
+- `apn` (str): APN name for the carrier.
+
+**Returns:**  
+- `str`: Assigned IP address.
+- `False`: Connection error.
+
+---
+
+#### `http(url, data=None, apn=None, ...)`
+
+Run the HTTP GET method or the HTTP PUT method and return retrieved data
+
+Automatically perform the full PDP context setup and close it at the end
+(use keep_session=True to keep the IP session active). Reuse the IP
+session if an IP address is found active.
+
+Automatically open and close the HTTP session, resetting errors.
+
+**Parameters:**
+- `url` (str): Target URL.
+- `data` (bytes): Payload for PUT requests.
+- `apn` (str): APN for GPRS connection.
+- `method` (str): `GET` or `PUT`.
+- `use_ssl` (bool): Use HTTPS.
+- `content_type` (str): HTTP Content-Type header.
+- `http_timeout` (int): Timeout in seconds.
+- `keep_session` (bool): Keep PDP context active.
+
+**Returns:**  
+- `status, str/bytes`: tuple including two values: HTTP status code (numeric, e.g., 200) and Response data (which can be text or binary).
+- `False, None`: Request failed.
+
+While the *Content type* header field can be set, the *Content encoding* is always null.
+
+Sending data with [zlib](https://docs.python.org/3/library/zlib.html) is allowed:
+
+```python
+import zlib
+body = zlib.compress('hello world'.encode())
+status, ret_data = sim800l.http("...url...", method="PUT", content_type="zipped", data=body, apn="...")
+```
+
+[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L datasheets report that the embedded IP stack only supports SSL2, SSL3 and TLS 1.0. These cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Some SIM800L datasheets also report support of TLS 1.2 but this does not appear to be true with firmware Revision 1418B05SIM800L24.  So, using `use_ssl=True` is discouraged; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL). Generally, to be able to connect an HTTPS web service, a separate proxy server is needed (e.g., a custom Python application in cloud), receiving non-SSL HTTP requests from the SIM800L module (possibly with application encryption) and forwarding them to the AWS Lambda HTTP API gateway via HTTPS.
+
+Notice also that, depending on the web server, a specific SSL certificate could be needed for a successful HTTPS connection; the SIM800L module has a limited support of SSL certificates and [installing an additional one](https://stackoverflow.com/questions/36996479/how-sim800-get-ssl-certificate
+) is not straightforfard.
+
+An additional problem is related to possible DNS errors when accessing endpoints. Using IP addresses is preferred.
+
+---
+
+#### `read_sms(index_id)`
+Reads an SMS by index.
+
+**Parameters:**
+- `index_id` (int): SMS storage index (1-based).
+
+**Returns:**  
+- `tuple`: (origin, date, time, text).
+- `None`: No message.
+- `False`: Read error.
+
+---
+
+#### `delete_sms(index_id)`
+Deletes an SMS by index.
+
+**Parameters:**
+- `index_id` (int): SMS storage index.
+
+---
+
+#### `callback_incoming(action)`
+Sets a callback for incoming calls.
+
+**Parameters:**
+- `action` (function): Function to trigger on incoming call.
+
+---
+
+#### `callback_no_carrier(action)`
+Sets a callback for call disconnection.
+
+**Parameters:**
+- `action` (function): Function to trigger on disconnect.
+
+---
+
+#### `hard_reset(reset_gpio)`
+**Hardware reset via GPIO pin (RPi only).**  
+*Parameters:*
+- `reset_gpio`: BCM GPIO pin number
+
+*Returns:*  
+- `True`: Reset successful
+- `None`: GPIO library unavailable
+
+---
+
+#### `set_date()`
+Syncs the system clock with the module's time.
+
+**Returns:**  
+- `datetime.datetime`: Updated time.
+- `None`: Module error.
+
+---
+
+#### `command(cmdstr, lines=-1, waitfor=500, msgtext=None, msgpdu=None, flush_input=True, timeout=2)`
+**Sends raw AT commands to the module.**  
+
 Executes an AT command. A newline must be added at the end of the AT command (e.g., `sim800l.command("AT+CCLK?\n", lines=-1)`).
 Input is flushed before sending the command (`flush_input=False` disables flushing).
-The first newline is discarded (if `lines` != 0).
-- `cmdstr`: AT command string
-- `lines`: number of expexted lines (see below)
-- `waitfor`: number of (milliseconds - 1000) to wait for the returned data; not used if <= 1000 milliseconds.
-- `msgtext`: only to be used when sending SMS messages, it includes the SMS text.
-- `flush_input`: `True` if residual input is flushed before sending the command. `False` disables flushing.
 
- *return*: the first line is returned (string); use `check_incoming()` to read the subsequent lines. `None` is returned when no data is received (or module error).
+*Parameters:*
+- `cmdstr`: AT command string (e.g., `"AT+CSQ"`)
+- `lines`: Number of response lines to read (-1=read until timeout)
+- `msgtext`: SMS text content (for SMS commands)
+- `msgpdu`: PDU-formatted SMS (binary)
+- `flush_input`: Clear input buffer before sending command
+- `timeout`: Response timeout in seconds
+
+*Returns:*  
+- `str`: Raw response ("OK", "ERROR", or data lines)
+- `"ERROR"` on serial write failure
 
 If `lines=0`, terminates just after writing text to the device (no bytes read; no return code, e.g. `None` returned). Note: `check_incoming()` can be subsequently used to read data from the device (see subsequent example).
-
-If `lines`<0 (e.g., `lines=-1`), return the concatenation of all read lines (until pySerial timeout `sim800l.serial_port().timeout`), separating each line by a linefeed.
-
-If `lines`>1 (legacy code), return the concatenation of all read lines, separating each line by a linefeed, discarding null lines and "OK".
 
 Example:
 
@@ -162,11 +356,16 @@ if not date:
 ---
 
 #### `command_data_ok(cmd, attempts=2)`
-Send AT command to the device, read the answer and then check the
-existence of the OK message. "cmd" shall not have the ending newline.
-- `cmd`: AT command
-- `attempts`: number of attempts before returning None or False
- *return*: string in case of successful retrieval; otherwise None if module error or False if missing OK message
+
+**Sends command and retrieves data before "OK".**  
+*Parameters:*
+- `cmd`: AT command (without trailing newline)
+- `attempts`: Retry attempts before returning None or False
+
+*Returns:*  
+- `str`: Response data
+- `None`: Module error
+- `False`: Missing "OK"
 
 ---
 
@@ -182,79 +381,79 @@ Newline must not be put at the end of the string.
 
 ---
 
-#### `connect_gprs(apn=None)`
-Connect to the bearer and get the IP address of the PDP context.
-Automatically perform the full PDP context setup.
-Reuse the IP session if an IP address is found active.
-- `apn`: APN name
- *return*: `False` if error (including module error), otherwise return the IP address (as string)
-
----
-
-#### `delete_sms(index_id)`
-Delete the SMS message referred to the index
-- `index_id`: index in the SMS message list starting from 1
- *return*: `None`
-
----
-
-#### `disconnect_gprs(apn=None)`
-Disconnect the bearer.
- *return*: `True` if succesfull, `False` if error
-
----
-
-#### `get_battery_voltage()`
-Return the battery voltage in Volts
- *return*: floating (volts). `None` in case of module error.
-
-Example: 4.158
+#### `disconnect_gprs()`
+**Deactivates GPRS PDP context.**  
+*Returns:*  
+- `True`: Success
+- `False`: Error
 
 ---
 
 #### `get_ccid()`
-Get the ICCID
- *return*: string; `None` in case of module error.
+**Retrieves SIM ICCID.**  
+*Returns:*  
+- `str`: ICCID
+- `None`: Module error
 
 Example: "1122334455667788990f"
 
 ---
 
-#### `get_date()`
-Return the clock date available in the module.
- *return*: `datetime.datetime`; `None` in case of module error.
-
-Example: "2022-03-09 19:59:31"
-
----
-
 #### `get_flash_id()`
-Get the SIM800 GSM module flash ID
- *return*: string; `None` in case of module error.
+**Retrieves flash memory ID.**  
+*Returns:*  
+- `str`: Flash ID
+- `None`: Error
 
 Example: "Device Name:SERIAL§FLASH§MTKSIP§6261§SF§24§01"
 
 ---
 
-#### `get_hw_revision()`
-Get the SIM800 GSM module hw revision
- *return*: string; `None` in case of module error.
+#### `get_netlight()`
+**Check the SIM800 Net Light Indicator.**
+*Returns:*  
+- 1: active,
+- 0: inactive,
+- `False`: error.
+
+---
+
+#### `get_hw_revision(method=0)`
+**Gets hardware/firmware version.**  
+*Parameters:*
+- `method`:
+  - 0 = Raw string
+  - 1 = Parsed components
+  - 2 = Alternate revision format
+
+*Returns:*  
+- `str`: Version info
+- `None`: Error
 
 Example: "Revision:1418B05SIM800L24"
 
 ---
 
 #### `get_imsi()`
-Get the IMSI
- *return*: string; `None` in case of module error.
+**Gets SIM IMSI number.**  
+*Returns:*  
+- `str`: IMSI
+- `None`: Error
 
 Example: "112233445566778"
 
 ---
 
-#### `get_ip()`
+#### `get_ip(poll_timeout=4)`
 Get the IP address of the PDP context
- *return*: valid IP address string if the bearer is connected, otherwise `None` (e.g., module error).
+
+*Parameter:*
+- `poll_timeout`: optional poll setting in seconds to wait for the IP address to return as +SAPBR: 1,1,"...".
+
+*Returns:*  
+- valid IP address string if the bearer is connected
+- `None`: Bearer not connected, no IP address
+- `False`: Error (e.g., module error)
 
 ---
 
@@ -270,24 +469,19 @@ Get the MSISDN subscriber number
 
 ---
 
-#### `get_operator()`
-Display the current network operator that the handset is currently
-registered with.
- *return*: operator string. `None` in case of module error. `False` in case of SIM error.
-
-Example: "Vodafone"
-
----
-
 #### `get_operator_list()`
-Display a full list of network operator names.
- *return*: dictionary of "numeric: "name" fields; None in case of error.
+**Lists all available network operators.**  
+*Returns:*  
+- `dict`: {numeric_code: "Operator Name"}
+- `None`: Error
 
 ---
 
 #### `get_serial_number()`
-Get the SIM800 GSM module serial number
- *return*: string; `None` in case of module error.
+**Retrieves module serial number.**  
+*Returns:*  
+- `str`: Serial
+- `None`: Error
 
 Example: "866782042319455"
 
@@ -300,16 +494,20 @@ Get the Get Service Provider Name stored inside the SIM
 ---
 
 #### `get_signal_strength()`
-Get the signal strength
- *return*: number; min = 3, max = 100; `None` in case of module error.
+**Gets signal strength (0-100%).**  
+*Returns:*  
+- `int`: Signal percentage
+- `None`: Error
 
 Example: 40.625
 
 ---
 
 #### `get_temperature()`
-Get the SIM800 GSM module temperature in Celsius degrees
- *return*: string; `None` in case of module error.
+**Gets module temperature.**  
+*Returns:*  
+- `str`: Temperature in Celsius
+- `None`: Error
 
 Example: "24.21"
 
@@ -326,44 +524,6 @@ Perform a hard reset of the SIM800 module through the RESET pin.
 This function can only be used on a Raspberry Pi.
 - `reset_gpio`: RESET pin
  *return*: `True` if the SIM is active after the reset, otherwise `False`. `None` in case of module error.
-
----
-
-#### `http(url="...", data="...", apn="...", method="...", use_ssl=False, ua=None, content_type="application/json", allow_redirection=False, http_timeout=10, keep_session=False, attempts=2)`
-Run the HTTP GET method or the HTTP PUT method and return retrieved data
-Automatically perform the full PDP context setup and close it at the end
-(use keep_session=True to keep the IP session active). Reuse the IP
-session if an IP address is found active.
-Automatically open and close the HTTP session, resetting errors.
-- `url`: URL
-- `data`: input data used for the PUT method (bytes; e.g., use `data="string".encode()`)
-- `apn`: APN name
-- `method`: "GET" or "PUT"
-- `use_ssl`: `True` if using HTTPS, `False` if using HTTP (see note)
-- `ua`: User agent (string); is not set, the SIM800L default user agent is used ("SIMCOM_MODULE").
-- `content_type`: (string) set the "Content-Type" field in the HTTP header
-- `allow_redirection`: `True` if HTTP redirection is allowed (e.g., if the server sends a redirect code (range 30x), the client will automatically send a new HTTP request)
-- `http_timeout`: timeout in seconds
-- `keep_session`: `True` to keep the PDP context active at the end
-- `attempts`: number of attempts before returning False
- *return*: `False` if error, otherwise the returned data (as string)
-
-While the *Content type* header field can be set, the *Content encoding* is always null.
-
-Sending data with [zlib](https://docs.python.org/3/library/zlib.html) is allowed:
-
-```python
-import zlib
-body = zlib.compress('hello world'.encode())
-sim800l.http("...url...", method="PUT", content_type="zipped", data=body, apn="...")
-```
-
-[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L datasheets report that the embedded IP stack only supports SSL2, SSL3 and TLS 1.0. These cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Some SIM800L datasheets also report support of TLS 1.2 but this does not appear to be true with firmware Revision 1418B05SIM800L24.  So, using `use_ssl=True` is discouraged; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL). Generally, to be able to connect an HTTPS web service, a separate proxy server is needed (e.g., a custom Python application in cloud), receiving non-SSL HTTP requests from the SIM800L module (possibly with application encryption) and forwarding them to the AWS Lambda HTTP API gateway via HTTPS.
-
-Notice also that, depending on the web server, a specific SSL certificate could be needed for a successful HTTPS connection; the SIM800L module has a limited support of SSL certificates and [installing an additional one](https://stackoverflow.com/questions/36996479/how-sim800-get-ssl-certificate
-) is not straightforfard.
-
-An additional problem is related to possible DNS errors when accessing endpoints. Using IP addresses is preferred.
 
 ---
 
@@ -396,42 +556,42 @@ Reuse the IP session if an IP address is found active.
 
 ---
 
-#### `is_registered()`
-Check whether the SIM is Registered, home network
- *return*: Truse if registered, otherwise `False`. . `None` in case of module error.
+#### `read_and_delete_all(index_id=0, delete=True)`
+**Reads and deletes all SMS messages.**  
 
----
-
-#### `read_and_delete_all(index_id=1)`
 Read the message at position 1, otherwise delete all SMS messages, regardless the type (read, unread, sent, unsent, received).
 If the message is succesfully retrieved, no deletion is done. (Deletion only occurs in case of retrieval error.)
 Notice that, while generally message 1 is the first to be read, it might happen that no message at position 1 is available,
 while other positions might still include messages; for those cases (missing message at position 1, but other messages
 available at other positions), the whole set of messages is deleted.
-Use `index_id=0` to delete all messages without trying to retrieve the one at position 1.
- *return*: text of the read message
+
+*Parameters:*
+- `index_id`: Starting index
+- `delete`: Whether to delete after reading
+
+*Returns:*  
+- `str`: Message text
+- `None`: No messages
+- `False`: Error
 
 ---
 
-#### `read_next_message(all_msg=False)`
+#### `read_next_message(all_msg=False, index=0, delete=True, tuple=False, concatenate=False, delta_min=15)`
 Check messages, read one message and then delete it. This function can be repeatedly called to read all stored/received messages one by one and delete them.
 - `all_msg`: `True` if no filter is used (read and unread messages).  Otherwise only the unread messages are returned.
  *return*: retrieved message text (string), otherwise: `None` = no messages to read; `False` = read error (module error)
 
----
+Check messages, read one message and then delete it. This function can be repeatedly called to read all stored/received messages one by one and delete them.
+Aggregate multipart PDU messages. Only delete messages if there are no errors.
 
-#### `read_sms(index_id)`
-Read the SMS message referred to the index_id position
-- `index_id`: index in the SMS message list starting from 1
- *return*: `None` if error, otherwise return a tuple including: MSISDN origin number, SMS date string, SMS time string, SMS text
+- `all_msg`: `True` if no filter is used (return both read and non read messages). Otherwise, only the non read messages are returned.
+- `index`: read index message in processed array; default is the first one.
+- `delete`: delete the message after reading it.
+- `tuple`: returns a tuple instead of the plain text. Tuple: `[MSISDN origin number, SMS date string, SMS time string, SMS text]`
+- `concatenate`: concatenate text messages (text mode) when read message is > 150 chars. Not reliable (suggest using PDU mode)
+- `delta_min`: max time in minutes to keep uncompleted multipart undecoded (allowing to wait for its completion)
 
----
-
-#### `send_sms(destno, msgtext)`
-Send SMS message
-- `destno`: MSISDN destination number
-- `msgtext`: Text message
- *return*: `True` if message is sent, otherwise `False`
+ *return*: retrieved message text (string), otherwise: `None` = no messages to read; `False` = read error (module error)
 
 ---
 
@@ -441,31 +601,12 @@ Return the serial port (for direct debugging)
 
 ---
 
-#### `set_date()`
-Set the Linux system date with the GSM time
- *return*: date string. `None` in case of module error.
-
-Example: "2022-03-09 20:10:54"
-
----
-
-#### `setup()`
+#### `setup(disable_netlight=False)`
 Run setup strings for the initial configuration of the SIM800 module
+
+- `disable_netlight`: `True` if the Net Light LED has to be disabled (default is to enable it).
+
  *return*: `True` if setup is successfully completed; `None` in case of module error.
-
----
-
-#### `sim800l.convert_gsm(string)`
-Encode `string` to bytes using the 3GPP TS 23.038 / ETSI GSM 03.38 codec.
-- `string`: UTF8 string
- *return*: gsm03.38 bytes
-
----
-
-#### `sim800l.convert_to_string(buf)`
-Decode GSM 03.38 encoded bytes, returning a string.
-- `buf`: gsm03.38 bytes
- *return*: UTF8 string
 
 ---
 
@@ -518,8 +659,12 @@ if self.check_incoming() != ("OK", None):
 ---
 
 #### `set_charset_hex()`
+**Sets HEX character encoding.**  
+
 Set the module to the HEX character set (only hexadecimal values from 00 to FF)
- *return*: "OK" if successful, otherwise `None` in case of module error.
+
+*Returns:*  
+- `"OK"` if successful, otherwise `None` in case of module error.
 
 ---
 
@@ -529,23 +674,51 @@ Set the module to the International reference alphabet (ITU-T T.50) character se
 
 ---
 
-#### `callback_incoming(function)`
-(legacy code, not used)
-- `function`: Python function with no args
+#### `set_charset_gsm()`
+**Sets GSM 03.38 encoding (default).**  
+*Returns:*  
+- `"OK"` if successful
 
 ---
 
-#### `callback_msg(function)`
+#### `callback_msg(action)`
+
 (legacy code)
 Configure a callback function, fired when `check_incoming()` receives a message (`+CMTI` returned, indicating new message received).
-- `function`: Python function with no args
+
+**Sets callback for incoming SMS.**  
+*Parameters:*
+- `action`: Function to call on `+CMTI` alert
+
+#### `convert_to_string(buf)`
+
+Decode GSM 03.38 encoded bytes, returning a string.
+
+**Parameters:**
+- `buf` (bytes): GSM 03.38 encoded data (bytes).
+
+**Returns:**  
+`str` - Decoded UTF-8 string.
 
 ---
 
-#### `callback_no_carrier(function)`
-(legacy code)
-Configure a callback function, fired when `check_incoming()` receives "NO CARRIER".
-- `function`: Python function with no args
+#### `convert_gsm(string)`
+
+Encode `string` to bytes using the 3GPP TS 23.038 / ETSI GSM 03.38 codec.
+
+**Parameters:**
+- `string` (str): Input string.
+
+**Returns:**  
+`bytes` - Encoded GSM 03.38 data.
+
+---
+
+## Notes
+
+- **PDU Mode**: Recommended for handling long SMS and multipart messages.
+- **GPRS**: Ensure correct APN settings for your carrier.
+- **HTTP**: SIM800L supports TLS 1.0 only; modern servers may reject connections.
 
 ---
 
@@ -598,12 +771,6 @@ sim800l.internet_sync_time(apn="...", time_zone_quarter=...)
 #### Query the DNS for an internet name
 ```python
 sim800l.query_ip_address(url="httpbin.org", apn="...")
-```
-
-#### Hard reset
-```python
-# Note: connect the RST pin with GPIO23 (pin 16 of the Raspberry Pi)
-sim800l.hard_reset(23)  # see schematics
 ```
 
 #### Send SMS
