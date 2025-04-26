@@ -25,7 +25,10 @@ try:
 except ModuleNotFoundError:
     GPIO = None
 
-import pdu
+if __package__ == "sim800l":
+    from sim800l import pdu
+else:
+    import pdu
 
 
 httpaction_method = {

@@ -25,10 +25,12 @@ Through an accurately tested heuristic approach, this software attempts to handl
 
 ## Setup
 
+This module only installs on Linux (not on Windows).
+
 ## Hw Requirements
 
 - Linux system with a UART serial port, or Raspberry Pi with [Raspberry Pi OS](https://en.wikipedia.org/wiki/Raspberry_Pi_OS) (this library has been tested with Buster and Bullseye).
-- External power supply for the SIM800L (using the Raspberry Pi 5V power supply, a standard diode (1N4007) with voltage drop of about 0.6 volts and a 2200 uF capacitor might work).
+- External power supply for the SIM800L (using the Raspberry Pi 5V power supply, a standard diode (1N4007) with voltage drop of about 0.6 volts and a 1 F capacitor might work).
 
 ### Installation
 

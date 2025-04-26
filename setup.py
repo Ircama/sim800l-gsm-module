@@ -16,7 +16,7 @@ from pkg_resources import parse_version
 
 ###########################################################################
 
-END_OF_INTRODUCTION = '## Setup'
+END_OF_INTRODUCTION = '### Installation'
 
 EPILOGUE = '''
 Full information, installation notes, API reference and usage details at the [sim800l-gsm-module GitHub repository](https://github.com/Ircama/raspberry-pi-sim800l-gsm-module).
