@@ -516,6 +516,9 @@ class SIM800L:
     def callback_msg(self, action):
         self.msg_action = action
 
+    def callback_clip(self, action):
+        self.clip_action = action
+
     def get_msgid(self):
         """
         Return the unsolicited notification of incoming SMS
@@ -2087,7 +2090,7 @@ class SIM800L:
         elif params[0].startswith("+CMTI"):
             self._msgid = int(params[1])
             if self.msg_action:
-                self.msg_action()
+                self.msg_action(int(params[1]))
             return "CMTI", self._msgid
 
         elif params[0].startswith("+CMGS"):
@@ -2151,10 +2154,19 @@ class SIM800L:
                     params[0])
                 return "NTP", None, 1
 
-        # +CLIP (legacy code)
-        elif params[0] == "RING" or params[0].startswith("+CLIP"):
+        # RING
+        elif params[0] == "RING":
+            if self.incoming_action:
+                self.incoming_action()
             # @todo handle
             return "RING", None
+
+        # +CLIP
+        elif params[0].startswith("+CLIP"):
+            number = params[0].split(": ")[-1].replace('"', "")
+            if self.clip_action:
+                self.clip_action(number)
+            return "CLIP", number
 
         # OK
         elif buf.strip() == "OK":
