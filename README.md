@@ -1,13 +1,13 @@
-# Raspberry Pi SIM800L GSM module
+# Raspberry Pi SIM800L, SIM800C and SIM800H GSM module
 
 [![PyPI](https://img.shields.io/pypi/v/sim800l-gsm-module.svg?maxAge=2592000)](https://pypi.org/project/sim800l-gsm-module)
 [![Python Versions](https://img.shields.io/pypi/pyversions/sim800l-gsm-module.svg)](https://pypi.org/project/sim800l-gsm-module/)
 [![PyPI download month](https://img.shields.io/pypi/dm/sim800l-gsm-module.svg)](https://pypi.python.org/pypi/sim800l-gsm-module/)
 [![GitHub license](https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-blue)](https://raw.githubusercontent.com/Ircama/raspberry-pi-sim800l-gsm-module/master/LICENSE)
 
-[SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi.
+[SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi. This library was also successfully tested with SIM800C and should also support SIM800H.
 
-This library driver interfaces with the SIM800L GSM module using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default: PDU).
+This library driver interfaces with the SIM800L, SIM800C and SIM800H GSM module using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default: PDU).
 
 ## AT Protocol issues
 
@@ -93,7 +93,7 @@ print("Unit Name:", sim800l.get_unit_name())
 
 ## API Documentation
 
-SIM800 does not support AT+HTTPSSL on firmware release <R14.00 (e.g., 1308B08SIM800L16 -> SIM800L R13.08 Build 08).
+SIM800L does not support AT+HTTPSSL on [firmware](firmware/README.md) release <R14.00 (e.g., 1308B08SIM800L16 -> SIM800L R13.08 Build 08). Use a SIM800C if you need TLS.
 
 For debugging needs, logs can be set to the maximum level (verbose mode, tracing each request/response) with the following command:
 
@@ -231,7 +231,7 @@ body = zlib.compress('hello world'.encode())
 status, ret_data = sim800l.http("...url...", method="PUT", content_type="zipped", data=body, apn="...")
 ```
 
-[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L datasheets report that the embedded IP stack only supports SSL2, SSL3 and TLS 1.0. These cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Some SIM800L datasheets also report support of TLS 1.2 but this does not appear to be true with firmware Revision 1418B05SIM800L24.  So, using `use_ssl=True` is discouraged; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL). Generally, to be able to connect an HTTPS web service, a separate proxy server is needed (e.g., a custom Python application in cloud), receiving non-SSL HTTP requests from the SIM800L module (possibly with application encryption) and forwarding them to the AWS Lambda HTTP API gateway via HTTPS.
+[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L supports SSL2, SSL3 and TLS 1.0, but not TLS 1.2 (this is for any SIM800L known [firmwares](firmware/README.md) including Revision 1418B06SIM800L24); old cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Nevertheless, SIM800C supports TLS 1.2 with recent [firmwares](firmware/README.md) and with this device you can use `use_ssl=True`; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL).
 
 Notice also that, depending on the web server, a specific SSL certificate could be needed for a successful HTTPS connection; the SIM800L module has a limited support of SSL certificates and [installing an additional one](https://stackoverflow.com/questions/36996479/how-sim800-get-ssl-certificate
 ) is not straightforfard.
@@ -720,7 +720,7 @@ Encode `string` to bytes using the 3GPP TS 23.038 / ETSI GSM 03.38 codec.
 
 - **PDU Mode**: Recommended for handling long SMS and multipart messages.
 - **GPRS**: Ensure correct APN settings for your carrier.
-- **HTTP**: SIM800L supports TLS 1.0 only; modern servers may reject connections.
+- **HTTP**: SIM800L supports TLS 1.0 only (modern servers may reject connections); SIM800C supports TLS 1.2.
 
 ---
 
