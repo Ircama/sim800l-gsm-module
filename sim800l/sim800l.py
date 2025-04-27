@@ -33,7 +33,7 @@ else:
 
 httpaction_method = {
     "0": "GET",
-    "1": "PUT",
+    "1": "POST",
     "2": "HEAD",
     "3": "DELETE",
     "X": "Unknown"
@@ -153,11 +153,13 @@ class SIM800L:
         termios.tcsetattr(fd, termios.TCSANOW, attr)
         tty.setraw(fd)
 
+        # Functions:
         self.incoming_action = None
         self.no_carrier_action = None
         self.clip_action = None
-        self._clip = None
         self.msg_action = None
+
+        self._clip = None
         self._msgid = 0
         self.mode = mode
 
@@ -505,22 +507,22 @@ class SIM800L:
         return True
 
     def callback_incoming(self, action):
-        self.incoming_action = action
+        self.incoming_action = action  # set the callback function
 
     def callback_no_carrier(self, action):
-        self.no_carrier_action = action
+        self.no_carrier_action = action  # set the callback function
+
+    def callback_msg(self, action):
+        self.msg_action = action  # set the callback function
+
+    def callback_clip(self, action):
+        self.clip_action = action  # set the callback function
 
     def get_clip(self):
         """
         Not used
         """
         return self._clip
-
-    def callback_msg(self, action):
-        self.msg_action = action
-
-    def callback_clip(self, action):
-        self.clip_action = action
 
     def get_msgid(self):
         """
@@ -909,15 +911,15 @@ class SIM800L:
              keep_session=False,
              attempts=2):
         """
-        Run the HTTP GET method or the HTTP PUT method and return retrieved data
+        Run the HTTP GET method or the HTTP POST method and return retrieved data.
         Automatically perform the full PDP context setup and close it at the end
         (use keep_session=True to keep the IP session active). Reuse the IP
         session if an IP address is found active.
         Automatically open and close the HTTP session, resetting errors.
         :param url: URL
-        :param data: input data used for the PUT method (bytes)
+        :param data: input data used for the POST method (bytes)
         :param apn: APN name
-        :param method: GET or PUT
+        :param method: GET or POST (or PUT)
         :param use_ssl: True if using HTTPS, False if using HTTP; note:
             The SIM800L module only supports  SSL2, SSL3 and TLS 1.0.
         :param ua: User agent (string); is not set, the SIM800L default user
@@ -965,7 +967,8 @@ class SIM800L:
         if method is None:
             logging.critical("SIM800L - Missing HTTP method")
             return False, None
-        if method == "PUT":
+        if method == "POST" or method == "PUT":
+            method = "POST"
             # POST data must exist
             if not data:
                 logging.critical("SIM800L - Null data parameter.")
@@ -1040,7 +1043,7 @@ class SIM800L:
                 ua_string = ""
 
             # Complete preparation of HTTPPARA for CID, URL, CONTENT
-            cmd = (  # PUT
+            cmd = (  # POST
                 'AT+HTTPPARA="CID",1'
                 ';+HTTPPARA="URL","' + url + '"' + ua_string +
                 ';+HTTPPARA="CONTENT","' + content_type + '"' +
@@ -1068,7 +1071,7 @@ class SIM800L:
                 )
                 continue
 
-            if method == "PUT":
+            if method == "POST":
                 # Ask to send POST data (HTTPDATA)
                 len_input = len(data)
                 cmd = 'AT+HTTPDATA=' + str(len_input) + ',' + str(
@@ -1119,7 +1122,7 @@ class SIM800L:
                     )
                     continue
                 # Execute the POST (HTTPACTION)
-                r = self.command_ok('AT+HTTPACTION=1')  # PUT
+                r = self.command_ok('AT+HTTPACTION=1')  # POST
                 if not r:
                     self.command('AT+HTTPTERM\n')
                     if not keep_session:
@@ -1502,6 +1505,16 @@ class SIM800L:
         :return: retrieved message text (string), otherwise: None = no messages
             to read; False = read error
         """
+        def msg_is_multipart(msg):
+            return (
+                "multipart" in msg
+                and msg["multipart"] != None
+                and msg["multipart"] != False
+                and (
+                        isinstance(msg["multipart"], int)
+                        or msg["multipart"].isnumeric()
+                    )
+            )
 
         def delete_messages(to_delete):
             if delete:
@@ -1605,7 +1618,8 @@ class SIM800L:
                         msg
                     )
                     continue
-                if msg["valid"] and "multipart" not in msg:  # standard valid message
+                has_multipart = msg_is_multipart(msg)
+                if msg["valid"] and not has_multipart:  # standard valid message
                     if "text" in msg:
                         to_delete.add(msg_num)
                         delete_messages(to_delete)
@@ -1616,13 +1630,13 @@ class SIM800L:
                         "SIM800L - missing text in valid PDU message: %s", msg
                     )
                     continue
-                if not msg["valid"] and "multipart" not in msg:
+                if not msg["valid"] and not has_multipart:
                     logging.error(
                         "SIM800L - missing multipart for invalid PDU SMS: %s",
                         msg
                     )
                     return False
-                if "multipart" in msg:  # process valid and non valid multipart messages
+                if has_multipart:  # process valid and non valid multipart messages
                     multipart = msg["multipart"]
                     # Check that this multipart is completed somewhere; if a valid part is found and has a text element, process it 
                     for i in decoded_messages:
@@ -1690,7 +1704,7 @@ class SIM800L:
 
                     logging.debug("SIM800L - multipart SMS not completed yet: %s", i)
 
-            if "text" in msg and "multipart" not in msg:  # non PDU
+            if "text" in msg and not msg_is_multipart(msg):  # non PDU
                 to_delete.add(msg_num)
                 message = msg["text"]
                 concat_msg = message
@@ -1714,7 +1728,7 @@ class SIM800L:
                 if tuple:
                     return produce_tuple(concat_msg)
                 return concat_msg
-            if "multipart" not in msg or not msg["multipart"]:
+            if not msg_is_multipart(msg):
                 logging.error("SIM800L - missing text in non PDU message: %s", msg)
         return None
 
@@ -1949,7 +1963,7 @@ class SIM800L:
             return "GENERIC", buf
         params = buf.rstrip().split(',')
 
-        # +HTTPACTION (HTTP GET and PUT methods)
+        # +HTTPACTION (HTTP GET and POST methods)
         if (len(params) == 3 and len(params[0]) == 14 and
                 params[0].startswith("+HTTPACTION: ")):
             try:
@@ -2111,7 +2125,8 @@ class SIM800L:
 
         # NO CARRIER (legacy code, partially revised) fires callback_no_carrier()
         elif params[0] == "NO CARRIER":
-            self.no_carrier_action()
+            if self.no_carrier_action:
+                self.no_carrier_action()
             return "NOCARRIER", None
 
         # +CDNSGIP (DNS query)
@@ -2158,13 +2173,13 @@ class SIM800L:
                 return "NTP", None, 1
 
         # RING
-        elif params[0] == "RING":
+        elif params[0] == "RING":  # The DCE has detected an incoming call signal from network
             if self.incoming_action:
                 self.incoming_action()
             # @todo handle
             return "RING", None
 
-        # +CLIP
+        # +CLIP - incoming voice call is detected
         elif params[0].startswith("+CLIP"):
             number = params[0].split(": ")[-1].replace('"', "")
             if self.clip_action:

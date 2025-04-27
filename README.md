@@ -9,6 +9,8 @@
 
 This library driver interfaces with the SIM800L, SIM800C and SIM800H GSM module using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default: PDU).
 
+Specifically, it provides a simple interface for sending messages (`send_sms()`), automatically handling multipart messages when needed. It also offers a high-level method (`read_next_message()`) to retrieve the next available message, abstracting message type and intelligently aggregating multipart content. It includes a high-level function (`http()`) for sending HTTP GET or POST requests, returning status and data in text or binary form. In addition, almost 30 specialized methods are available, to query the extensive proprietary information exposed by the SIM800 module.
+
 ## AT Protocol issues
 
 This software manages SMS messaging and HTTP operations via the asyncronous serial communication of the SIM800 device, using its proprietary AT command protocol.
@@ -84,7 +86,7 @@ Disabling the serial console login is needed in order to enable communication be
 
 Check [Usage examples](#usage-examples). Basic program:
 
-```python 
+```python
 from sim800l import SIM800L
 sim800l = SIM800L()
 sim800l.setup()
@@ -199,7 +201,7 @@ Activates GPRS PDP context.
 
 #### `http(url, data=None, apn=None, ...)`
 
-Run the HTTP GET method or the HTTP PUT method and return retrieved data
+Run the HTTP GET method or the HTTP POST method and return retrieved data.
 
 Automatically perform the full PDP context setup and close it at the end
 (use keep_session=True to keep the IP session active). Reuse the IP
@@ -209,9 +211,9 @@ Automatically open and close the HTTP session, resetting errors.
 
 **Parameters:**
 - `url` (str): Target URL.
-- `data` (bytes): Payload for PUT requests.
+- `data` (bytes): Payload for POST requests.
 - `apn` (str): APN for GPRS connection.
-- `method` (str): `GET` or `PUT`.
+- `method` (str): `GET` or `POST` (or `PUT`, same as `POST`).
 - `use_ssl` (bool): Use HTTPS.
 - `content_type` (str): HTTP Content-Type header.
 - `http_timeout` (int): Timeout in seconds.
@@ -228,7 +230,7 @@ Sending data with [zlib](https://docs.python.org/3/library/zlib.html) is allowed
 ```python
 import zlib
 body = zlib.compress('hello world'.encode())
-status, ret_data = sim800l.http("...url...", method="PUT", content_type="zipped", data=body, apn="...")
+status, ret_data = sim800l.http("...url...", method="POST", content_type="zipped", data=body, apn="...")
 ```
 
 [Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L supports SSL2, SSL3 and TLS 1.0, but not TLS 1.2 (this is for any SIM800L known [firmwares](firmware/README.md) including Revision 1418B06SIM800L24); old cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Nevertheless, SIM800C supports TLS 1.2 with recent [firmwares](firmware/README.md) and with this device you can use `use_ssl=True`; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL).
@@ -258,22 +260,6 @@ Deletes an SMS by index.
 
 **Parameters:**
 - `index_id` (int): SMS storage index.
-
----
-
-#### `callback_incoming(action)`
-Sets a callback for incoming calls.
-
-**Parameters:**
-- `action` (function): Function to trigger on incoming call.
-
----
-
-#### `callback_no_carrier(action)`
-Sets a callback for call disconnection.
-
-**Parameters:**
-- `action` (function): Function to trigger on disconnect.
 
 ---
 
@@ -614,14 +600,16 @@ Run setup strings for the initial configuration of the SIM800 module
 
 #### `check_incoming()`
 Internal function, used to check incoming data from the SIM800L module, decoding messages.
-It also fires the functions configured with `callback_msg()` and `callback_no_carrier()`.
+It also fires the functions configured with `callback_incoming()`, `callback_msg()`, `callback_clip()` and `callback_no_carrier()`.
  *return*: tuple
 
 Return values:
 - `('GENERIC', None)`: no data received
 - `('GENERIC', data)`: received data is returned (`data` is a string)
-- `("HTTPACTION_PUT", False, size)`: invalid HTTP PUT method, with return code different from 200
-- `("HTTPACTION_PUT", True, size)`: valid HTTP PUT method; `size` is the number of returned characters
+- `("HTTPACTION_POST", False, size)`: invalid HTTP POST method, with return code different from 200
+- `("HTTPACTION_POST", True, size)`: valid HTTP POST method; `size` is the number of returned characters
+- `("HTTPACTION_PUT", False, size)`: invalid HTTP PUT method (same as POST, depending on the parameter to invoke `http()`), with return code different from 200
+- `("HTTPACTION_PUT", True, size)`: valid HTTP PUT method (same as POST, depending on the parameter to invoke `http()`); `size` is the number of returned characters
 - `("HTTPACTION_GET", False, size)`: invalid HTTP GET method, with return code different from 200
 - `("HTTPACTION_GET", True, size)`: valid HTTP GET method; `size` is the number of returned characters
 - `("IP", "ip address")`: bearer connected, received IP address
@@ -682,15 +670,6 @@ Set the module to the International reference alphabet (ITU-T T.50) character se
 - `"OK"` if successful
 
 ---
-
-#### `callback_msg(action)`
-
-(legacy code)
-Configure a callback function, fired when `check_incoming()` receives a message (`+CMTI` returned, indicating new message received).
-
-**Sets callback for incoming SMS.**  
-*Parameters:*
-- `action`: Function to call on `+CMTI` alert
 
 #### `convert_to_string(buf)`
 
@@ -796,10 +775,10 @@ print(sim800l.http("httpbin.org/get", method="GET", use_ssl=True, apn="..."))  #
 
 Note: time ago `httpbin.org` succeeded with HTTPS because supporting an old SSL version. Curently the test fails with HTTPS.
 
-#### HTTP PUT sample
+#### HTTP POST sample
 ```python
-print(sim800l.http("httpbin.org/post", data='{"name","abc"}'.encode(), method="PUT", apn="..."))  # HTTPS
-print(sim800l.http("httpbin.org/post", data='{"name","abc"}'.encode(), method="PUT", use_ssl=False, apn="..."))  # HTTP
+print(sim800l.http("httpbin.org/post", data='{"name","abc"}'.encode(), method="POST", apn="..."))  # HTTPS
+print(sim800l.http("httpbin.org/post", data='{"name","abc"}'.encode(), method="POST", use_ssl=False, apn="..."))  # HTTP
 ```
 
 #### Read the n-th SMS
@@ -809,20 +788,122 @@ index_id=...  # e.g., 1
 sim800l.read_sms(index_id)
 ```
 
-#### Callback action
-(legacy code)
+#### Callback actions
+
+Unsolicited Result Codes can be optionally configured to fire respective functions.
+
+Unsolicited Result Code |Configuration method                            |Corresponding fired function and argument
+------------------------|------------------------------------------------|----------------------------
+RING                    |sim800l.callback_incoming(incoming_function)    |incoming_function()
+NO CARRIER              |sim800l.callback_no_carrier(incoming_function)  |incoming_function()
++CMTI                   |sim800l.callback_msg(message_function)          |message_function(message_index)
++CLIP                   |sim800l.callback_clip(calling_function)         |calling_function(calling_msisdn_number)
+
+Setup example:
+
 ```python
-def print_delete():
-    # Assuming the SIM has no SMS initially
-    sms = sim800l.read_sms(1)
-    print(sms)
-    sim800l.delete_sms(1)
+def alert_new_message():
+    print("Incoming SMS message")
 
-sim800l.callback_msg(print_delete)
-
-while `True`:
-    sim800l.check_incoming()
+sim800l.callback_msg(alert_new_message)
 ```
+
+#### `callback_incoming(action)`
+Sets a callback for incoming calls.
+
+**Parameters:**
+- `action` (function): Function to trigger on incoming call.
+
+---
+
+#### `callback_no_carrier(action)`
+Sets a callback for call disconnection.
+
+**Parameters:**
+- `action` (function): Function to trigger on disconnect.
+
+---
+
+#### `callback_msg(action)`
+
+Configure a callback function, fired when `check_incoming()` receives a message (`+CMTI` returned, indicating new message received).
+
+**Sets callback for incoming SMS.**  
+*Parameters:*
+- `action`: Function to call on `+CMTI` alert
+
+#### `callback_clip(action)`
+
+Configure a callback function, fired when `check_incoming()` detects an incoming voice call (`+CLIP` returned, indicating incoming voice call detected).
+
+**Sets callback for incoming voice call.**  
+*Parameters:*
+- `action`: Function to call on `+CLIP` alert
+
+-----------
+
+Examples:
+
+```python
+from sim800l import SIM800L
+
+MSISDN = "+..."
+APN= "..."
+
+# To improve the logging level:
+#import logging
+#logging.getLogger().setLevel(5)
+ 
+sim800l=SIM800L()
+
+ret = sim800l.setup()
+if not ret:
+    quit()
+
+print("Result of get_netlight", sim800l.get_netlight())
+print("Result of check_sim", sim800l.check_sim())
+print("Result of get_date", sim800l.get_date())
+print("Result of is_registered", sim800l.is_registered())
+print("Result of get_operator", sim800l.get_operator())
+print("Result of get_operator_list", sim800l.get_operator_list())
+print("Result of get_service_provider", sim800l.get_service_provider())
+print("Result of get_battery_voltage", sim800l.get_battery_voltage())
+print("Result of get_msisdn", sim800l.get_msisdn())
+print("Result of get_signal_strength", sim800l.get_signal_strength())
+print("Result of get_unit_name", sim800l.get_unit_name())
+print("Result of get_hw_revision", sim800l.get_hw_revision())
+print("Result of get_serial_number", sim800l.get_serial_number())
+print("Result of get_ccid", sim800l.get_ccid())
+print("Result of get_imsi", sim800l.get_imsi())
+print("Result of get_temperature", sim800l.get_temperature())
+print("Result of get_flash_id", sim800l.get_flash_id())
+print("Result of get_ip", sim800l.get_ip())
+
+rec = sim800l.send_sms(MSISDN, "The quick brown fox jumps over the lazy dog.")
+print("Result of sent short SMS:", repr(rec))
+
+rec = sim800l.send_sms(MSISDN, "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.")
+print("Result of sent long SMS:", repr(rec))
+
+rec = False
+while rec is not None:
+    rec = sim800l.read_next_message(all_msg=True)
+    print("Received SMS message:", repr(rec))
+
+rec = sim800l.http("httpbin.org/ip", method="GET", apn=APN, binary=True)
+print("HTTP", repr(rec))
+
+rec = sim800l.http("httpbin.org/post", data='{"name","abc"}'.encode(), method="POST", apn=APN)
+print("HTTP", repr(rec))
+
+rec = sim800l.http("https://httpbin.org/post", data='{"name","abc"}'.encode(), method="POST", apn=APN, use_ssl=True)
+print("HTTP", repr(rec))
+
+rec = sim800l.http("https://www.google.com/", method="GET", apn=APN, use_ssl=True)
+print("HTTP", repr(rec))
+```
+
+-----------
 
 ## References
 - [AT Datasheet](https://microchip.ua/simcom/2G/SIM800%20Series_AT%20Command%20Manual_V1.12.pdf)
@@ -834,8 +915,6 @@ Arduino:
 - https://lastminuteengineers.com/sim800l-gsm-module-arduino-tutorial/
 
 ## History
-This library is a fork of https://github.com/jakhax/raspberry-pi-sim800l-gsm-module with many additions.
-
-The backward compatibility with the original repo is still kept.
+This library is a fork of the original library https://github.com/jakhax/raspberry-pi-sim800l-gsm-module with a wide set of additions.
 
 > SIM900/SIM800 are 2G only modems, make sure your provider supports 2G as it is already being phased out in a lot of areas around the world, else a 3G/4G modem like the SIM7100 / SIM5300 is warranted.  
