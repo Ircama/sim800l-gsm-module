@@ -7,7 +7,7 @@
 
 [SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi. This library was also successfully tested with SIM800C and should also support SIM800H.
 
-This library driver interfaces with the SIM800L, SIM800C and SIM800H GSM module using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages, as well as performing HTTP GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default: PDU).
+This library driver interfaces with the Simcom SIM800L, SIM800C and SIM800H GSM modules using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages including long ones, as well as performing HTTP/HTTPS GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default is PDU). It might also support newer devices like SIM7100 and SIM5300.
 
 Specifically, it provides a simple interface for sending messages (`send_sms()`), automatically handling multipart messages when needed. It also offers a high-level method (`read_next_message()`) to retrieve the next available message, abstracting message type and intelligently aggregating multipart content. It includes a high-level function (`http()`) for sending HTTP GET or POST requests, returning status and data in text or binary form. In addition, over 30 methods are available, to configure and query the extensive proprietary information exposed by the SIM800 module.
 
@@ -95,8 +95,6 @@ print("Unit Name:", sim800l.get_unit_name())
 
 ## API Documentation
 
-SIM800L does not support AT+HTTPSSL on [firmware](firmware/README.md) release <R14.00 (e.g., 1308B08SIM800L16 -> SIM800L R13.08 Build 08). Use a SIM800C if you need TLS.
-
 For debugging needs, logs can be set to the maximum level (verbose mode, tracing each request/response) with the following command:
 
 ```python
@@ -138,7 +136,6 @@ Check messages, read one message and then delete it. This function can be repeat
 - `all_msg`: `True` if no filter is used (read and unread messages).  Otherwise only the unread messages are returned.
  *return*: retrieved message text (string), otherwise: `None` = no messages to read; `False` = read error (module error)
 
-Check messages, read one message and then delete it. This function can be repeatedly called to read all stored/received messages one by one and delete them.
 Aggregate multipart PDU messages. Only delete messages if there are no errors.
 
 - `all_msg`: `True` if no filter is used (return both read and non read messages). Otherwise, only the non read messages are returned.
@@ -149,6 +146,69 @@ Aggregate multipart PDU messages. Only delete messages if there are no errors.
 - `delta_min`: max time in minutes to keep uncompleted multipart undecoded (allowing to wait for its completion)
 
  *return*: retrieved message text (string), otherwise: `None` = no messages to read; `False` = read error (module error)
+
+As an example of usage, this is a trivial continuous SMS message monitor showing all incoming messages for 10 minutes (it also includes a recovery operation that resets the device in case of fault, that should never occur in normal conditions):
+
+```python
+import time
+import threading
+from sim800l import SIM800L
+
+RESET_GPIO = 24
+
+def reset_and_setup(sim800l, disable_netlight):
+    """Perform hard reset and attempt setup."""
+    time.sleep(1)
+    sim800l.hard_reset(RESET_GPIO)
+    time.sleep(20)
+    return sim800l.setup(disable_netlight=disable_netlight)
+
+def sms_listener():
+    sim800l = SIM800L()
+    net_light_disabled = not sim800l.get_netlight()
+
+    if not sim800l.setup(disable_netlight=net_light_disabled):
+        if not reset_and_setup(sim800l, net_light_disabled):
+            return
+
+    print("Message monitor started")
+    while True:
+        msg = sim800l.read_next_message(all_msg=True)
+        if msg is False:
+            if not reset_and_setup(sim800l, net_light_disabled):
+                return
+            continue
+        if msg is not None:
+            print("Received SMS message:", repr(msg))
+
+# Usage Example: Start SMS Message Monitor
+listener_thread = threading.Thread(target=sms_listener, daemon=True)
+listener_thread.start()
+
+print("Sample running for 10 minutes and printing any received message.")
+time.sleep(600)
+print("Terminated.")
+```
+
+---
+
+#### `send_sms(destno, msgtext, ...)`
+Sends an SMS.
+
+It includes sending multipart SMS messages (long SMS) if mode is PDU.
+
+**Parameters:**
+- `destno` (str): Destination phone number.
+- `msgtext` (str): Message content.
+- `validity` (int): SMS validity period (PDU mode).
+- `smsc` (str): SMSC number (PDU mode).
+- `requestStatusReport` (bool): Request delivery report.
+- `rejectDuplicates` (bool): Reject duplicate messages.
+- `sendFlash` (bool): Send as flash SMS.
+
+**Returns:**  
+- `True`: SMS sent successfully.
+- `False`: Failed to send.
 
 ---
 
@@ -169,24 +229,6 @@ available at other positions), the whole set of messages is deleted.
 - `str`: Message text
 - `None`: No messages
 - `False`: Error
-
----
-
-#### `send_sms(destno, msgtext, ...)`
-Sends an SMS.
-
-**Parameters:**
-- `destno` (str): Destination phone number.
-- `msgtext` (str): Message content.
-- `validity` (int): SMS validity period (PDU mode).
-- `smsc` (str): SMSC number (PDU mode).
-- `requestStatusReport` (bool): Request delivery report.
-- `rejectDuplicates` (bool): Reject duplicate messages.
-- `sendFlash` (bool): Send as flash SMS.
-
-**Returns:**  
-- `True`: SMS sent successfully.
-- `False`: Failed to send.
 
 ---
 
@@ -247,7 +289,7 @@ body = zlib.compress('hello world'.encode())
 status, ret_data = sim800l.http("...url...", method="POST", content_type="zipped", data=body, apn="...")
 ```
 
-[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L supports SSL2, SSL3 and TLS 1.0, but not TLS 1.2 (this is for any SIM800L known [firmwares](firmware/README.md) including Revision 1418B06SIM800L24); old cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Nevertheless, SIM800C supports TLS 1.2 with recent [firmwares](firmware/README.md) and with this device you can use `use_ssl=True`; setting a Python web server to support the SSL option of a SIM800L client module is not straightforward (it is better to use an [application encryption](https://stackoverflow.com/a/55147077/10598800) instead of SSL).
+[Note on SSL](https://github.com/ostaquet/Arduino-SIM800L-driver/issues/33#issuecomment-761763635): SIM800L does not support AT+HTTPSSL on [firmware](firmware/README.md) releases less than R14.18 (e.g., 1308B08SIM800L16, which is SIM800L R13.08 Build 08, 16 Mbit Flash, does not support SSL). Newer firmwares of SIM800L support SSL2, SSL3 and TLS 1.0, but not TLS 1.2 (this is for any SIM800L known [firmwares](firmware/README.md) including Revision 1418B06SIM800L24, which is SIM800L R14.18 Build 06, 24 Mbit Flash); old cryptographic protocols are deprecated for all modern backend servers and the connection will be generally denied by the server, typically leading to SIM800L error 605 or 606 when establishing an HTTPS connection. Nevertheless, SIM800C supports TLS 1.2 with recent [firmwares](firmware/README.md) and with this device you can use `use_ssl=True`. No known firmware supports TLS 1.3. Notice that most websites are progressively abandoning TLS 1.2 in favor of TLS 1.3, which offers improved security, performance, and reduced handshake overhead; a device that only supports up to TLS 1.2 risks future incompatibility, as an increasing number of sites will enforce TLS 1.3 exclusively.
 
 Notice also that, depending on the web server, a specific SSL certificate could be needed for a successful HTTPS connection; the SIM800L module has a limited support of SSL certificates and [installing an additional one](https://stackoverflow.com/questions/36996479/how-sim800-get-ssl-certificate
 ) is not straightforfard.
@@ -255,6 +297,18 @@ Notice also that, depending on the web server, a specific SSL certificate could 
 An additional problem is related to possible DNS errors when accessing endpoints. Using IP addresses is preferred.
 
 Notice that SIM800L, SIM800C and SIM800H do not support changing the DNS (`AT+CDNSCFG` and `AT+CDNSGIP` do not work).
+
+Example of usage:
+
+```python
+from sim800l import SIM800L
+sim800l = SIM800L()
+sim800l.setup()
+
+print(sim800l.http("httpbin.org/ip", method="GET", apn="..."))
+
+print(sim800l.http("https://www.google.com/", method="GET", apn="...", use_ssl=True))  # Only SIM800C with latest TLS1.2 firmware
+```
 
 ---
 
@@ -899,6 +953,6 @@ Arduino:
 - https://lastminuteengineers.com/sim800l-gsm-module-arduino-tutorial/
 
 ## History
-This library is a fork of the original library https://github.com/jakhax/raspberry-pi-sim800l-gsm-module with a wide set of additions.
+This library is a fork of the original code https://github.com/jakhax/raspberry-pi-sim800l-gsm-module, totally refactored with a wide set of additions.
 
-> SIM900/SIM800 are 2G only modems, make sure your provider supports 2G as it is already being phased out in a lot of areas around the world, else a 3G/4G modem like the SIM7100 / SIM5300 is warranted.  
+> SIM900/SIM800 are 2G only modems, make sure your provider supports 2G as it is already being phased out in a lot of areas around the world, else a 3G/4G modem like the SIM7100 / SIM5300 has wider support.  

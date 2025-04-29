@@ -13,6 +13,8 @@ Old firmwares:
 
 *1418B06SIM800L24* might possibly be the latest firmware for SIM800L.
 
+Old *13...SIM800L16* firmwares (16 Mbit flash) cannot be flashed on SIM800L 24 Mbit flash with this procedure.
+
 Disclaimer: Firmware version *1418B06SIM800L24* was sourced from an [online repository](https://s27.picofile.com/file/8458398618/1418B06SIM800L24.rar.html), and its authenticity and origin cannot be verified. Users are advised to exercise caution and are encouraged to notify any official updates, improved versions, or reliable alternatives to ensure optimal performance and security.
 
 SIM800L can theoretically install the lastest firmware for the SIM800C, which does include TLS 1.2 support, but other incompatibilities might arise, like the NETLIGHT LED pin mapped to pin 41 in SIM800C, while SIM800L needs pin 64. If you install the SIM800C firmware to SIM800L (discouraged), pin 64 (the standard LED pin on SIM800L) will not be used and pin 41 will be HIGH or LOW according to each blink, possibly compromising the hardware depending on how pin 41 is connected on SIM800L (the blink can be disabled via `AT+CNETLIGHT=0` and `AT&W`).
@@ -39,7 +41,8 @@ Usage: mtkdownload <com> ROM_VIVA <format> [<port>]
 
 ROM_VIVA: name of the ROM file
 
-<format> can be Y=format FAT, N=skip FAT formatting, T=dry run.
+<format> can be Y=format FAT, S=like Y + disable netlight,
+         N=skip FAT formatting, T=dry run.
 
 <port> optional Raspberry Pi BCM port number for performing reset. If 0:
 no upgrade, only read fw version; if negative: same as 0, with device reset
@@ -69,6 +72,8 @@ If the port is 0, the software reads the current firmware version and exit witho
 
 If the port is negative (e.g., -24), the software reads the current firmware version, resets the device and exits without performing the upgrade.
 
+If `<format>` is 'S', format FAT and also disable netlight at the end of the upgrade.
+
 If `<format>` is 'T', a dry-run procedure is executed testing port communication and GPIO reset, with output similar to the following (for `./mtkdownload /dev/serial0 .../ROM_VIVA T ...`):
 
 ```
@@ -83,8 +88,10 @@ Dry-run mode.
 Contacting the device.
 
 Current firmware version:
-AT+CGMR
+AT+CGMR;+CNETLIGHT?
 Revision:...
+
++CNETLIGHT: 1
 
 OK
 
@@ -99,8 +106,12 @@ RECV 'restart' resp:            1 Byte  0x4d
 Operation completed. Sleep for 5 seconds...
 
 Current firmware version:
-AT+CGMR
+AT+CGMR;+CNETLIGHT?
++CPIN: READY
+
 Revision:...
+
++CNETLIGHT: 1
 
 OK
 ```
@@ -119,8 +130,11 @@ Dry-run mode.
 Contacting the device.
 
 Current firmware version:
-AT+CGMR
+AT+CGMR;+CNETLIGHT?
+
 Revision:...
+
++CNETLIGHT: 1
 
 OK
 
@@ -149,7 +163,7 @@ SEND 128 Bytes, please wait erasure ('R' sequence) to complete with '02'...
 [ R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R ]
 [ R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R R 02 ]
 
-Erase done. Reading the subsequent two bytes (maximum packet length).
+Erase done. Reading the subsequent two bytes (maximum packet length 0x00, 0x08).
 RECV  1 Byte    0x00
 RECV  1 Byte    0x08
 
@@ -162,11 +176,22 @@ RECV 'restart' resp:            1 Byte  0x08
 Operation completed. Sleep for 5 seconds...
 
 Current firmware version:
-AT+CGMR
+AT+CGMR;+CNETLIGHT?
++CPIN: READY
+
 Revision:...
+
++CNETLIGHT: 1
 
 OK
 ```
+
+Notes:
+
+- `Revision:...` shows the firmware version.
+- `+CPIN: READY` might be shown and it means that the SIM card is correctly recognised.
+- `+CNETLIGHT: 1` means that the Network Status Indication LED is in use.
+
 
 ## Upgrade procedure
 
@@ -293,4 +318,249 @@ F1: 5004 0000
 U0: 0000 0001 [0000]
 T0: 0000 00A3
 Boot failed, reset ...
+```
+
+## TLS Support
+
+The following code tests the TLS support of the firmware.
+
+```python
+############################
+# Test 1 - write test_tls.html (open it with a browser)
+APN="..."
+
+from sim800l import SIM800L
+sim800l = SIM800L()
+sim800l.setup()
+
+a = sim800l.http(
+    "https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html",
+    method="GET",
+    apn=APN,
+    use_ssl=True
+)
+b = a[1].replace(
+    '/includes/', 'https://clienttest.ssllabs.com:8443/includes/'
+).replace(
+    'src="/images/', 'src="https://clienttest.ssllabs.com:8443/images/'
+).replace(
+    'src=/images/', 'src=https://clienttest.ssllabs.com:8443/images/'
+).replace(
+    '<script type="text/javascript" src="https://clienttest.ssllabs.com:8443/includes/viewClient.js"></script>', ""
+).replace(
+    '<script type="text/javascript" src="https://clienttest.ssllabs.com:8443/includes/viewClient-appleTest.js"></script>', ""
+).replace(
+    '<script type="text/javascript" src="https://clienttest.ssllabs.com:8443/includes/viewClient-clientTest.js"></script>', ""
+)
+
+with open("test_tls.html", "w") as text_file:
+    text_file.write(b)
+
+############################
+# test 2 - fails https://browserleaks.com/tls because the web server requires TLS 1.3 and the firmware does not support it.
+ret = sim800l.http("https://browserleaks.com/tls", method="GET", apn=APN, use_ssl=True)  # this returns (606, '') because requires TLS 1.3
+# Status code 606 is SSL fatal alert message with immediate connection termination
+
+############################
+# Test 3 - report TLS characteristics
+import json
+from pprint import pprint
+a = sim800l.http("https://www.howsmyssl.com/a/check", method="GET", apn="mobile.vodafone.it", use_ssl=True)
+pprint(json.loads(a[1]))
+```
+
+### Output produced by firmware 1418B06SIM800L24
+
+TLS 1.1, 1.2 and 1.3 are not supported.
+
+#### Protocols
+
+| Protocol   | Supported |
+|------------|-----------|
+| TLS 1.3    | No        |
+| TLS 1.2    | No        |
+| TLS 1.1    | No        |
+| TLS 1.0    | Yes*      |
+| SSL 3      | Yes*      |
+| SSL 2      | No        |
+
+#### Cipher Suites (in order of preference)
+
+| Cipher Suite | Strength |
+|--------------|----------|
+| **`TLS_RSA_WITH_RC4_128_MD5 (0x4)` INSECURE** | **128** |
+| **`TLS_RSA_WITH_RC4_128_SHA (0x5)` INSECURE** | **128** |
+| `TLS_RSA_WITH_AES_128_CBC_SHA (0x2f)` WEAK | 128 |
+| `TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA (0x16)` WEAK | 112 |
+| `TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA (0x13)` WEAK | 112 |
+| `TLS_RSA_WITH_3DES_EDE_CBC_SHA (0x0a)` WEAK | 112 |
+| **`TLS_RSA_WITH_DES_CBC_SHA (0x09)` INSECURE** | **56** |
+| **`TLS_RSA_EXPORT_WITH_RC4_40_MD5 (0x03)` INSECURE** | **40** |
+| **`TLS_DHE_DSS_WITH_DES_CBC_SHA (0x12)` INSECURE** | **56** |
+
+#### Protocol Details
+
+| Feature                                     | Value       |
+|--------------------------------------------|-------------|
+| Server Name Indication (SNI)               | No          |
+| **Secure Renegotiation**                   | **No – INSECURE** |
+| TLS compression                            | No          |
+| Session tickets                            | No          |
+| OCSP stapling                              | No          |
+| Signature algorithms                       | -           |
+| Named Groups                               | -           |
+| Next Protocol Negotiation                  | No          |
+| Application Layer Protocol Negotiation     | No          |
+| SSL 2 handshake compatibility              | No          |
+
+#### TLS characteristics
+
+```python
+{'able_to_detect_n_minus_one_splitting': True,
+ 'beast_vuln': False,
+ 'ephemeral_keys_supported': True,
+ 'given_cipher_suites': ['TLS_RSA_WITH_RC4_128_MD5',
+                         'TLS_RSA_WITH_RC4_128_SHA',
+                         'TLS_RSA_WITH_AES_128_CBC_SHA',
+                         'TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA',
+                         'TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA',
+                         'TLS_RSA_WITH_3DES_EDE_CBC_SHA',
+                         'TLS_RSA_WITH_DES_CBC_SHA',
+                         'TLS_RSA_EXPORT_WITH_RC4_40_MD5',
+                         'TLS_DHE_DSS_WITH_DES_CBC_SHA'],
+ 'insecure_cipher_suites': {'TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA': ['uses 3DES '
+                                                                  'which is '
+                                                                  'vulnerable '
+                                                                  'to the '
+                                                                  'Sweet32 '
+                                                                  'attack but '
+                                                                  'was not '
+                                                                  'configured '
+                                                                  'as a '
+                                                                  'fallback in '
+                                                                  'the '
+                                                                  'ciphersuite '
+                                                                  'order'],
+                            'TLS_DHE_DSS_WITH_DES_CBC_SHA': ['uses keys '
+                                                             'smaller than 128 '
+                                                             'bits in its '
+                                                             'encryption'],
+                            'TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA': ['uses 3DES '
+                                                                  'which is '
+                                                                  'vulnerable '
+                                                                  'to the '
+                                                                  'Sweet32 '
+                                                                  'attack but '
+                                                                  'was not '
+                                                                  'configured '
+                                                                  'as a '
+                                                                  'fallback in '
+                                                                  'the '
+                                                                  'ciphersuite '
+                                                                  'order'],
+                            'TLS_RSA_EXPORT_WITH_RC4_40_MD5': ['uses keys '
+                                                               'smaller than '
+                                                               '128 bits in '
+                                                               'its encryption',
+                                                               'uses RC4 which '
+                                                               'has insecure '
+                                                               'biases in its '
+                                                               'output'],
+                            'TLS_RSA_WITH_3DES_EDE_CBC_SHA': ['uses 3DES which '
+                                                              'is vulnerable '
+                                                              'to the Sweet32 '
+                                                              'attack but was '
+                                                              'not configured '
+                                                              'as a fallback '
+                                                              'in the '
+                                                              'ciphersuite '
+                                                              'order'],
+                            'TLS_RSA_WITH_DES_CBC_SHA': ['uses keys smaller '
+                                                         'than 128 bits in its '
+                                                         'encryption'],
+                            'TLS_RSA_WITH_RC4_128_MD5': ['uses RC4 which has '
+                                                         'insecure biases in '
+                                                         'its output'],
+                            'TLS_RSA_WITH_RC4_128_SHA': ['uses RC4 which has '
+                                                         'insecure biases in '
+                                                         'its output']},
+ 'rating': 'Bad',
+ 'session_ticket_supported': False,
+ 'tls_compression_supported': False,
+ 'tls_version': 'TLS 1.0',
+ 'unknown_cipher_suite_supported': False}
+```
+
+### Output produced by firmware 1418B09SIM800C24_TLS12
+
+TLS 1.3 is not supported.
+
+#### Protocols
+
+| Protocol | Supported |
+|:---------|:----------|
+| TLS 1.3 | No |
+| TLS 1.2 | Yes* |
+| TLS 1.1 | Yes* |
+| TLS 1.0 | Yes* |
+| SSL 3   | Yes* |
+| SSL 2   | No |
+
+> (*) Without JavaScript, this test reliably detects only the highest supported protocol.
+
+#### Cipher Suites (in order of preference)
+
+| Cipher Suite | Strength |
+|:-------------|:---------|
+| **TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256** (`0xc02b`) — *Forward Secrecy* | 128 |
+| **TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256** (`0xc02f`) — *Forward Secrecy* | 128 |
+| **TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256** (`0xc023`) — **WEAK** | 128 |
+| **TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256** (`0xc027`) — **WEAK** | 128 |
+| **TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA** (`0xc009`) — **WEAK** | 128 |
+| **TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA** (`0xc013`) — **WEAK** | 128 |
+| **TLS_RSA_WITH_AES_128_GCM_SHA256** (`0x9c`) — **WEAK** | 128 |
+| **TLS_RSA_WITH_AES_128_CBC_SHA256** (`0x3c`) — **WEAK** | 128 |
+| **TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA** (`0xc014`) — **WEAK** | 256 |
+| **TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA** (`0xc00a`) — **WEAK** | 256 |
+
+> (1) When a browser supports SSL 2, its SSL 2-only suites are shown only on the very first connection to this site.  
+> To see the suites, close all browser windows, then open this exact page directly. Don't refresh.
+
+#### Protocol Details
+
+| Feature | Supported |
+|:--------|:----------|
+| **Server Name Indication (SNI)** | No |
+| **Secure Renegotiation** | **No — INSECURE** |
+| **TLS compression** | No |
+| **Session tickets** | No |
+| **OCSP stapling** | No |
+| Signature algorithms | - |
+| Named Groups | - |
+| Next Protocol Negotiation | No |
+| Application Layer Protocol Negotiation | No |
+| **SSL 2 handshake compatibility** | No |
+
+#### TLS characteristics
+
+```python
+{'able_to_detect_n_minus_one_splitting': False,
+ 'beast_vuln': False,
+ 'ephemeral_keys_supported': True,
+ 'given_cipher_suites': ['TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256',
+                         'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
+                         'TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256',
+                         'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256',
+                         'TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA',
+                         'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA',
+                         'TLS_RSA_WITH_AES_128_GCM_SHA256',
+                         'TLS_RSA_WITH_AES_128_CBC_SHA256',
+                         'TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA',
+                         'TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA'],
+ 'insecure_cipher_suites': {},
+ 'rating': 'Probably Okay',
+ 'session_ticket_supported': False,
+ 'tls_compression_supported': False,
+ 'tls_version': 'TLS 1.2',
+ 'unknown_cipher_suite_supported': False}
 ```

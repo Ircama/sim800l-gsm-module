@@ -58,6 +58,7 @@ int name_arr[] = {115200,38400,  19200,  9600,  4800,  2400,  1200,  300,38400, 
 #define LINE_LENGTH 40
 
 static int com_fd;
+static int disable_netlight = FALSE;
 
 void set_speed(int fd, int speed);
 int set_Parity(int fd,int databits,int stopbits,int parity,int time);
@@ -65,27 +66,39 @@ int OpenDev(char *Dev);
 void initcom(char *dev,int boad,int datelen, int stoplen,int parity);
 int comm_init(char *dev);
 
-int print_version(int com_fd) {
+int print_version(int disable_netlight, int com_fd) {
     int nrev=0;
     int nsend=0;
-    unsigned char RxxBuffer[100];
+    char RxxBuffer[1000];
+    const char *cmd;
 
     /* Print version */
     printf("\nCurrent firmware version:\n");
     usleep(100000);
-    nsend = write(com_fd, "AT+CGMR\r\n", 9);
+    if (disable_netlight) {
+        cmd = "AT+CNETLIGHT=0;&W;+CGMR;+CNETLIGHT?\r\n";
+    } else {
+        cmd = "AT+CGMR;+CNETLIGHT?\r\n";
+    }
+    nsend = write(com_fd, cmd, strlen(cmd));
     if (nsend < 0) {
         perror("Write failed");
         return 1;
     }
-    usleep(100000);
-    nrev = read(com_fd, RxxBuffer, 99);  // Leave space for null terminator
-    if (nrev < 0) {
-        perror("Read failed");
-        return 1;
+    for (int i=0;i<20;i++) {
+        usleep(100000);  // 0.5 seconds
+        nrev = read(com_fd, RxxBuffer, 999);  // Leave space for null terminator
+        if ((nrev < 0) || (nrev > 990)) {
+            perror("Read failed");
+            return 1;
+        }
+        RxxBuffer[nrev] = '\0';  // Ensure string termination
+        printf("%.*s", nrev, RxxBuffer);  // Print only received bytes safely
+        if (strstr(RxxBuffer, "OK") != NULL) {
+            break;  // Found "OK", terminate early
+        }
     }
-    RxxBuffer[nrev] = '\0';  // Ensure string termination
-    printf("%.*s\n", nrev, RxxBuffer);  // Print only received bytes safely
+    printf("\n");
     return 0;
 }
 
@@ -178,7 +191,8 @@ void usage()
     printf("Usage: mtkdownload <com> ROM_VIVA <format> [<port>]\n\n");
 	printf("<com>: e.g., /dev/serial0, /dev/ttyS0, /dev/ttyS1, /dev/ttyS2...\n\n");
 	printf("ROM_VIVA: name of the ROM file\n\n");
-	printf("<format> can be Y=format FAT, N=skip FAT formatting, T=dry run.\n\n");
+	printf("<format> can be Y=format FAT, S=like Y + disable netlight,\n");
+	printf("         N=skip FAT formatting, T=dry run.\n\n");
 	printf("<port> optional Raspberry Pi BCM port number for performing reset. If 0:\n\
 no upgrade, only read fw version; if negative: same as 0, with device reset\n");
 	printf("\n\
@@ -263,9 +277,13 @@ int main(int argc, char *argv[])
     printf("ROM length %d bytes\n", iRomlen);
 	int bFormat;
     int test_mode = FALSE;
+    disable_netlight = FALSE;
 
     if (!strcmp(argv[3], "Y")) {
         bFormat = TRUE;
+    } else if (!strcmp(argv[3], "S")) {
+        bFormat = TRUE;
+        disable_netlight = TRUE;
     } else if (!strcmp(argv[3], "N")) {
         bFormat = FALSE;
     } else if (!strcmp(argv[3], "T")) {
@@ -284,7 +302,7 @@ int main(int argc, char *argv[])
     int nsend=0;
     int terminate=0;
 
-    if (print_version(com_fd)) {
+    if (print_version(FALSE, com_fd)) {
         return 1;
     }
 
@@ -445,7 +463,7 @@ int main(int argc, char *argv[])
             close(com_fd);
         return 1;
 	}
-	printf("\nErase done. Reading the subsequent two bytes (maximum packet length).\n");
+	printf("\nErase done. Reading the subsequent two bytes (maximum packet length 0x00, 0x08).\n");
 	nrev = 0;
 	count=0;
 	while (count != 2)
@@ -561,7 +579,7 @@ int main(int argc, char *argv[])
         
         printf("Operation completed. Sleep for 5 seconds...\n");
         usleep(5000000);
-        if (print_version(com_fd)) {
+        if (print_version(disable_netlight, com_fd)) {
             return 1;
         }
 
