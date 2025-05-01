@@ -66,20 +66,30 @@ int OpenDev(char *Dev);
 void initcom(char *dev,int boad,int datelen, int stoplen,int parity);
 int comm_init(char *dev);
 
-int print_version(int disable_netlight, int com_fd) {
+int print_version(int disable_netlight, int shutdown, int com_fd) {
     int nrev=0;
     int nsend=0;
     char RxxBuffer[1000];
-    const char *cmd;
+    char cmd[128] = {0};
 
     /* Print version */
     printf("\nCurrent firmware version:\n");
     usleep(100000);
+
     if (disable_netlight) {
-        cmd = "AT+CNETLIGHT=0;&W;+CGMR;+CNETLIGHT?\r\n";
+        strcpy(cmd, "AT+CNETLIGHT=0;&W;+CGMR;+CNETLIGHT?");
     } else {
-        cmd = "AT+CGMR;+CNETLIGHT?\r\n";
+        strcpy(cmd, "AT+CGMR;+CNETLIGHT?");
     }
+
+    // Append shutdown command if needed
+    if (shutdown) {
+        strcat(cmd, ";+CPOWD=1");
+    }
+
+    // Always terminate with CRLF
+    strcat(cmd, "\r\n");
+
     nsend = write(com_fd, cmd, strlen(cmd));
     if (nsend < 0) {
         perror("Write failed");
@@ -196,6 +206,9 @@ void usage()
 	printf("<port> optional Raspberry Pi BCM port number for performing reset. If 0:\n\
 no upgrade, only read fw version; if negative: same as 0, with device reset\n");
 	printf("\n\
+The device is also rebooted via software command; this is useful if the device\n\
+is operative before the upgrade starts and when <port> (hard reset) is not used.\n\
+\n\
 Examples:\n\
 \n\
 mtkdownload /dev/serial0 ROM_VIVA Y\n\
@@ -302,7 +315,7 @@ int main(int argc, char *argv[])
     int nsend=0;
     int terminate=0;
 
-    if (print_version(FALSE, com_fd)) {
+    if (print_version(FALSE, TRUE, com_fd)) {
         return 1;
     }
 
@@ -325,7 +338,8 @@ int main(int argc, char *argv[])
         if (terminate)
             return 2;
     } else {
-        printf("Short RST to GND. Remove the short after the sync loop starts. Should receive %x\n\n", COMM_START_SYNC_CHAR);
+        printf("Wait for the device to restart (it shoud happen after about 30 seconds. Alternatively,\n");
+        printf("short RST to GND. Remove the short after the sync loop starts. Should receive %x\n\n", COMM_430_SYNC_CHAR);
     }
 
     /* Sync procedure - Synchronization Word Detection(0xB5) */
@@ -579,7 +593,7 @@ int main(int argc, char *argv[])
         
         printf("Operation completed. Sleep for 5 seconds...\n");
         usleep(5000000);
-        if (print_version(disable_netlight, com_fd)) {
+        if (print_version(disable_netlight, FALSE, com_fd)) {
             return 1;
         }
 

@@ -681,6 +681,144 @@ class SIM800L:
         self.command('AT+CMGD={}\n'.format(index_id), lines=-1)
         self.check_incoming()
 
+    def dns_query(self, apn=None, domain=None, timeout=10):
+        """
+        Perform a DNS query.
+
+        :param apn: (str) The APN string required for network context activation.
+        :param domain: (str) The domain name to resolve.
+        :param  timeout: (int) Maximum duration in seconds to wait for responses (default: 10).
+
+        :return: dict or False or None
+            dict: On success, returns a dictionary with keys:
+                  - 'domain': resolved domain name
+                  - 'ips': list of resolved IP addresses
+                  - 'local_ip': the device's IP address
+                  - 'primary_dns': Primary DNS server used for the query
+                  - 'secondary_dns': Secondary DNS server used for the query
+            False: On failure due to command error, timeout, or unexpected responses.
+            None: If the DNS query completes but no result is found (domain not resolved).
+        """
+        def pdp_shut():
+            buf = self.command('AT+CIPSHUT\n', lines=-1)
+            if not buf:
+                logging.error("SIM800L - No answer from CIPSHUT")
+                return False
+            if not "SHUT OK" in buf:
+                logging.error("SIM800L - wrong answer from CIPSHUT: %s", buf)
+                return False
+            logging.debug("SIM800L - CIPSHUT successful.")
+            return True
+
+        def get_dns_servers():
+            buf = self.command('AT+CDNSCFG?\n', lines=-1)
+            if not buf:
+                logging.error("SIM800L - CDNSCFG failed")
+                return {}
+            primary = re.search(r'PrimaryDns:\s*([0-9.]+)', buf)
+            secondary = re.search(r'SecondaryDns:\s*([0-9.]+)', buf)
+            return {
+                'primary_dns': primary.group(1) if primary else None,
+                'secondary_dns': secondary.group(1) if secondary else None
+            }
+
+        def pdp_status():
+            if not self.command_ok('AT+CIPSTATUS'):
+                logging.error("SIM800L - CIPSTATUS failed")
+                return False
+            expire = time.monotonic() + timeout  # seconds
+            while time.monotonic() < expire:
+                r = self.check_incoming()
+                if not r:
+                    logging.debug("SIM800L - no data from CIPSTATUS")
+                    time.sleep(0.1)
+                    continue
+                if r == ('GENERIC', 'STATE: IP INITIAL'):
+                    return True
+                logging.error("SIM800L - wrong answer from CIPSTATUS: %s", r)
+                time.sleep(0.1)
+            logging.error("SIM800L - no answer from CIPSTATUS")
+            return False
+
+        if apn is None:
+            logging.critical("SIM800L - Missing APN name in dns_query()")
+            return False
+        if domain is None:
+            logging.critical("SIM800L - Missing domain name in dns_query()")
+            return False
+
+        if not pdp_shut():
+            return False
+        if not pdp_status():
+            return False
+        if not self.command_ok('AT+CSTT="' + apn + '"'):
+            logging.error("SIM800L - CSTT (APN configuration) failed")
+            pdp_shut()
+            return False
+        if not self.command_ok('AT+CIICR'):
+            logging.error("SIM800L - CIICR (GPRS connection) failed")
+            pdp_shut()
+            return False
+        buf = self.command('AT+CIFSR\n', lines=-1)
+        if not buf:
+            logging.error("SIM800L - CIFSR (get IP address) failed")
+            pdp_shut()
+            return False
+        if "ERROR" in buf:
+            logging.error("SIM800L - CIFSR (get IP address) returned ERROR")
+            pdp_shut()
+            return False
+        ip_addr = buf.strip()
+        logging.debug("SIM800L - Returned IP address: %s", ip_addr)
+        dns_servers = get_dns_servers()
+        logging.info("SIM800L - DNS servers: %s", dns_servers)
+        if not self.command_ok('AT+CDNSGIP=' + domain):
+            logging.error("SIM800L - CDNSGIP (DNS query) failed")
+            pdp_shut()
+            return False
+        expire = time.monotonic() + timeout  # seconds
+        while time.monotonic() < expire:
+            r = self.check_incoming()
+            if not r:
+                logging.debug("SIM800L - no data from CDNSGIP (DNS query)")
+                time.sleep(0.1)
+                continue
+            try:
+                label = r[0]
+                data = r[1]
+            except Exception:
+                logging.critical(
+                    "SIM800L - invalid CDNSGIP data format (DNS query)"
+                )
+                time.sleep(0.1)
+                continue
+            if r == ('GENERIC', None):
+                time.sleep(0.1)
+                continue
+            if label != "DNS":
+                logging.error(
+                    "SIM800L - invalid data while querying DNS: %s", r
+                )
+                time.sleep(0.1)
+                continue
+            if not data:
+                logging.error("SIM800L - DNS not found.")
+                pdp_shut()
+                return None
+            if not isinstance(data, dict):
+                logging.critical(
+                    "SIM800L - invalid data from CDNSGIP (DNS query)"
+                )
+                pdp_shut()
+                return False
+            pdp_shut()
+            data["local_ip"] = ip_addr
+            logging.info("SIM800L - DNS: %s", data)
+            return {**data, **dns_servers}
+        logging.error("SIM800L - no answer from CDNSGIP (DNS query)")
+        pdp_shut()
+        return False
+
     def get_ip(self, poll_timeout=4):
         """
         Get the IP address of the PDP context.
@@ -749,7 +887,7 @@ class SIM800L:
             the GPRS session.
         """
         if apn is None:
-            logging.critical("SIM800L - Missing APN name")
+            logging.critical("SIM800L - Missing APN name in connect_gprs()")
             return False
         ip_address = self.get_ip()
         if ip_address is False:
@@ -780,73 +918,6 @@ class SIM800L:
                 return False
             logging.debug("SIM800L - Bearer connected")
         return ip_address
-
-    def query_ip_address(self,
-            url=None,
-            apn=None,
-            http_timeout=10,
-            keep_session=False):
-        """
-        Connect to the bearer, get the IP address and query an internet domain
-        name, getting the IP address.
-        Automatically perform the full PDP context setup.
-        Disconnect the bearer at the end (unless keep_session = True)
-        Reuse the IP session if an IP address is found active.
-        :param url: internet domain name to be queried
-        :param http_timeout: timeout in seconds
-        :param keep_session: True to keep the PDP context active at the end
-        :return: False if error, otherwise the returned IP address (string)
-        """
-        if not url:
-            logging.error("SIM800L - missing URL parameter")
-            return False
-        ip_address = self.connect_gprs(apn=apn)
-        r = self.command('AT+CIFSR\n')
-        if not r:
-            return None
-        if r == 'ERROR':
-            if ip_address is False:
-                if not keep_session:
-                    self.disconnect_gprs()
-                return False
-            if not self.command_ok('AT+CSTT="' + apn + '";+CIICR'):
-                self.command('AT+CIPSHUT\n')
-                if not keep_session:
-                    self.disconnect_gprs()
-                return False
-        logging.info("SIM800L - IP Address: %s", self.command('AT+CIFSR\n'))
-        cmd = 'AT+CDNSGIP="' + url + '"'
-        if not self.command_ok(cmd):
-            logging.error("SIM800L - error while querying DNS")
-            self.command('AT+CIPSHUT\n')
-            if not keep_session:
-                self.disconnect_gprs()
-            return False
-        expire = time.monotonic() + http_timeout
-        s = self.check_incoming()
-        if not s:
-            return None
-        dns = False
-        while time.monotonic() < expire:
-            if s[0] == 'DNS':
-                if not s[1]:
-                    logging.error(
-                        "SIM800L - error while querying DNS: %s", s[2])
-                    self.command('AT+CIPSHUT\n')
-                    if not keep_session:
-                        self.disconnect_gprs()
-                    return False
-                dns = s[1]
-                logging.info("SIM800L - DNS: %s", dns)
-                break
-            time.sleep(0.1)
-            s = self.check_incoming()
-            if not s:
-                return None
-        self.command('AT+CIPSHUT\n')
-        if not keep_session:
-            self.disconnect_gprs()
-        return dns
 
     def internet_sync_time(self,
             time_server="193.204.114.232",  # INRiM NTP server
@@ -2129,21 +2200,22 @@ class SIM800L:
                 self.no_carrier_action()
             return "NOCARRIER", None
 
-        # +CDNSGIP (DNS query)
-        elif params[0].startswith('+CDNSGIP: '):
-            if params[0].split(':')[1].strip() != '1':
-                if params[1] == '8':
-                    return "DNS", None, "DNS_COMMON_ERROR"
-                elif params[1] == '3':
-                    return "DNS", None, "DNS_NETWORK_ERROR"
-                else:
-                    return "DNS", None, "DNS_UNKNOWN_ERROR" + params[1]
-            dns = params[2].replace('"', '').strip()
-            logging.info("SIM800L - DNS: %s", dns)
-            if len(params) > 3:
-                return "DNS", dns, params[3].replace('"', '').strip()
+        # +CDNSGIP (Read DNS domain IP address)
+        elif params[0].startswith("+CDNSGIP: "):
+            match_success = re.match(
+                r'\+CDNSGIP:\s*1,"([^"]+)"(?:,"([^"]+)")?(?:,"([^"]+)")?',
+                buf
+            )
+            match_fail = re.match(r'\+CDNSGIP:\s*0,(\d+)', buf)
+            if match_success:
+                domain = match_success.group(1)
+                ips = [ip for ip in match_success.groups()[1:] if ip]
+                return "DNS", {'success': True, 'domain': domain, 'ips': ips}
+            elif match_fail:
+                error_code = int(match_fail.group(1))
+                return "DNS", {'success': False, 'error_code': error_code}
             else:
-                return "DNS", dns, params[1].replace('"', '').strip()
+                return "DNS", False
 
         # +CNTP (NTP sync)
         elif params[0].startswith('+CNTP: '):

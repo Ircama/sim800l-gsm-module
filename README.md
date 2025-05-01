@@ -7,9 +7,16 @@
 
 [SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi. This library was also successfully tested with SIM800C and should also support SIM800H.
 
-This library driver interfaces with the Simcom SIM800L, SIM800C and SIM800H GSM modules using AT commands over a serial connection. It allows sending, receiving and deleting SMS messages including long ones, as well as performing HTTP/HTTPS GET/POST requests, synching/updating the RTC and getting other information from the module. The interface can operate in TEXT, HEX, or PDU modes (default is PDU). It might also support newer devices like SIM7100 and SIM5300.
+This library provides a driver for SIMCom GSM modules (SIM800L, SIM800C, SIM800H) via AT commands over a serial interface. It supports SMS (including multipart), HTTP/HTTPS GET and POST requests, DNS resolution, RTC synchronization, and access to module information. SMS messaging can be done in TEXT, HEX, or PDU mode (default: PDU). Possibly the driver is also compatible with newer modules like SIM7100 and SIM5300.
 
-Specifically, it provides a simple interface for sending messages (`send_sms()`), automatically handling multipart messages when needed. It also offers a high-level method (`read_next_message()`) to retrieve the next available message, abstracting message type and intelligently aggregating multipart content. It includes a high-level function (`http()`) for sending HTTP GET or POST requests, returning status and data in text or binary form. In addition, over 30 methods are available, to configure and query the extensive proprietary information exposed by the SIM800 module.
+Key features include:
+
+- `send_sms()`: Sends SMS messages, automatically handling multipart when necessary.
+- `read_next_message()`: Retrieves the next SMS, abstracting message type and reassembling multipart content.
+- `http()`: Executes HTTP GET/POST requests, returning response status and payload.
+- `dns_query()`: Resolves domain names to IPs via the module’s DNS functionality.
+
+The library also exposes over 30 methods to configure and query the SIM module, enabling robust control and integration.
 
 ## AT Protocol issues
 
@@ -255,6 +262,28 @@ Deletes an SMS by index.
 
 ### GPRS
 
+#### `dns_query(apn=None, domain=None, timeout=10)`
+
+Perform a DNS query.
+
+Parameters:
+
+- `apn` (str): The APN string required for network context activation.
+- `domain` (str): The domain name to resolve.
+- `timeout` (int): Maximum duration in seconds to wait for responses (default: 10).
+
+Returns:
+- dict: On success, returns a dictionary with keys:
+          - 'domain': resolved domain name
+          - 'ips': list of resolved IP addresses
+          - 'local_ip': the device's IP address
+          - 'primary_dns': Primary DNS server used for the query
+          - 'secondary_dns': Secondary DNS server used for the query
+- `False`: On failure due to command error, timeout, or unexpected responses.
+- `None`: If the DNS query completes but no result is found (domain not resolved).
+
+---
+
 #### `http(url, data=None, apn=None, ...)`
 
 Run the HTTP GET method or the HTTP POST method and return retrieved data.
@@ -295,8 +324,6 @@ Notice also that, depending on the web server, a specific SSL certificate could 
 ) is not straightforfard.
 
 An additional problem is related to possible DNS errors when accessing endpoints. Using IP addresses is preferred.
-
-Notice that SIM800L, SIM800C and SIM800H do not support changing the DNS (`AT+CDNSCFG` and `AT+CDNSGIP` do not work).
 
 Example of usage:
 
@@ -685,8 +712,7 @@ Return values:
 - `("OK", None)`: "OK" message detected
 - `("DOWNLOAD", None)`: "DOWNLOAD" message detected
 - `("ERROR", None)`: "ERROR" message detected
-- `("DNS", None, error)`: DNS error message
-- `("DNS", dns1, dns2)`: IP address and FQDN retrieved from the DNS
+- `("DNS", dict)`: DNS data
 - `("NTP", None, error)`: NTP query error
 - `("NTP", date, 0)`: Successful NTP query; `date` is `datetime.datetime` format
 - `("COPN", numeric, name)`: Operator number and name
@@ -839,11 +865,6 @@ sim800l.setup()
 #### Sync time with internet
 ```python
 sim800l.internet_sync_time(apn="...", time_zone_quarter=...)
-```
-
-#### Query the DNS for an internet name
-```python
-sim800l.query_ip_address(url="httpbin.org", apn="...")
 ```
 
 #### Send SMS

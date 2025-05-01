@@ -30,7 +30,7 @@ Where firmwares were found (not official fonts in any case):
 
 This is an improved procedure of the original [mtkdownload.c](https://github.com/ZeroPhone/mtkdownload). 
 
-The *mtkdownload* tool is designed to flash firmware onto SIM800L/SIM800H/SIM800C modules via a serial connection, providing a low-level interface for updates. This version (tested on a Raspberry Pi) also includes additional controls, improved messages, embedded port reset, a dry-run option, and version number reporting before and after the upgrade.
+The *mtkdownload* tool is designed to flash firmware onto SIM800L/SIM800H/SIM800C modules via a serial connection, providing a low-level interface for updates. This version (tested on a Raspberry Pi) also includes additional controls, improved messages, embedded device reboot to automatically start the upload, embedded port reset, a dry-run option, and version number reporting before and after the upgrade.
 
 Command Syntax:
 
@@ -45,7 +45,10 @@ ROM_VIVA: name of the ROM file
          N=skip FAT formatting, T=dry run.
 
 <port> optional Raspberry Pi BCM port number for performing reset. If 0:
-no upgrade, only read fw version; if negative: same as 0, with device reset
+no upgrade, only read fw version; if negative: same as 0, with device reset.
+
+The device is also rebooted via software command; this is useful if the device
+is operative before the upgrade starts and when <port> (hard reset) is not used.
 
 Examples:
 
