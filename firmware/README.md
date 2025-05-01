@@ -70,14 +70,19 @@ mtkdownload /dev/serial0 ROM_VIVA Y -24
 No upgrade, just read the firmware version and reset the device via GPIO
 BCM 24.
 ```
+If the port is missing, mtkdownload attempts a software reboot of the SIM800 device and then starts the upgrade. The device must be operative for the software reboot to succeed.
 
 If the port is 0, the software reads the current firmware version and exit without performing the upgrade.
 
-If the port is negative (e.g., -24), the software reads the current firmware version, resets the device and exits without performing the upgrade.
+If the port is negative (e.g., -24), the software reads the current firmware version, performs a hard reset of the device and exits without performing the upgrade.
+
+If `<format>` is 'Y' (suggested), the software erases the FAT storage and then performs the flash upgrade.
+
+> In the version upgrade, such as upgrading from B01 to B02 version, you should erase the file system.
 
 If `<format>` is 'S', format FAT and also disable netlight at the end of the upgrade.
 
-If `<format>` is 'T', a dry-run procedure is executed testing port communication and GPIO reset, with output similar to the following (for `./mtkdownload /dev/serial0 .../ROM_VIVA T ...`):
+If `<format>` is 'T', a dry-run procedure is executed, testing port communication (and the GPIO hard reset if the port is given), with output similar to the following (for `./mtkdownload /dev/serial0 .../ROM_VIVA T ...`):
 
 ```
 Tty serial port configuration completed.
@@ -213,16 +218,26 @@ Run the upgrade procedure.
 ```bash
 cd firmware
 make
+mtkdownload /dev/serial0 1418B06SIM800L24/ROM_VIVA S
+
+or
+
+mtkdownload /dev/serial0 1418B06SIM800L24/ROM_VIVA Y
+
+or
+
 mtkdownload /dev/serial0 1418B06SIM800L24/ROM_VIVA Y 24
+
+or
+
+mtkdownload /dev/serial0 1418B06SIM800L24/ROM_VIVA S 24
 ```
 
-If the reset port is used, the upgrade is automatic, otherwise short the RST (Reset) pin to GND to reset the module, then release it. The tool sends sync bytes (0xB5) and waits for the module’s response (0x5B). From the documentation:
+The upgrade should be automatic; if the device will not enter in upgrade mode, short the RST (Reset) pin to GND to reset the module, then release it.
+
+To confirm the upgrade mode, the software sends sync bytes (0xB5) and waits for the module’s response (0x5B). From the documentation:
 
 > When the module Bootloader program starts, if it receives the 0xB5 byte synchronization word within 100 ms, it will reply with a 0x5B byte word then the module go into the upgrade mode. Within 100 ms, if the module does not receive 0xB5 synchronization word, the module will enter normal mode.
-
-If Y is specified (suggested), the tool also erases the FAT storage before flashing.
-
-> In the version upgrade, such as upgrading from B01 to B02 version, you should erase the file system.
 
 The firmware is split into 512-byte blocks. Each block is sent with a checksum for validation. Progress is displayed as a percentage. After transferring all data, the tool reboots automatically.
 

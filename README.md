@@ -274,11 +274,13 @@ Parameters:
 
 Returns:
 - dict: On success, returns a dictionary with keys:
-          - 'domain': resolved domain name
-          - 'ips': list of resolved IP addresses
-          - 'local_ip': the device's IP address
-          - 'primary_dns': Primary DNS server used for the query
-          - 'secondary_dns': Secondary DNS server used for the query
+
+  - 'domain': resolved domain name
+  - 'ips': list of resolved IP addresses
+  - 'local_ip': the device's IP address
+  - 'primary_dns': Primary DNS server used for the query
+  - 'secondary_dns': Secondary DNS server used for the query
+
 - `False`: On failure due to command error, timeout, or unexpected responses.
 - `None`: If the DNS query completes but no result is found (domain not resolved).
 

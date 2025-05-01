@@ -338,7 +338,7 @@ int main(int argc, char *argv[])
         if (terminate)
             return 2;
     } else {
-        printf("Wait for the device to restart (it shoud happen after about 30 seconds. Alternatively,\n");
+        printf("Wait for the device to restart (it should happen after about 30 seconds. Alternatively,\n");
         printf("short RST to GND. Remove the short after the sync loop starts. Should receive %x\n\n", COMM_430_SYNC_CHAR);
     }
 
