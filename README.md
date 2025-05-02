@@ -13,14 +13,16 @@ Key features include:
 
 - `send_sms()`: Sends SMS messages, automatically handling multipart when necessary.
 - `read_next_message()`: Retrieves the next SMS, abstracting message type and reassembling multipart content.
-- `http()`: Executes HTTP GET/POST requests, returning response status and payload.
+- `http()`: Executes HTTP and HTTPS GET/POST requests, returning response status and payload.
 - `dns_query()`: Resolves domain names to IPs via the module’s DNS functionality.
+- `ping()`: ICMP ping of a domain name or IP address.
+- `internet_sync_time()`: syncronize the RTC time with the NTP time server and returns the current NTP time.
 
 The library also exposes over 30 methods to configure and query the SIM module, enabling robust control and integration.
 
 ## AT Protocol issues
 
-This software manages SMS messaging and HTTP operations via the asyncronous serial communication of the SIM800 device, using its proprietary AT command protocol.
+The SIMCom SIM800 series (including models such as SIM800L, SIM800C, and SIM800H) supports a broad set of cellular and Internet features, all accessible through a proprietary AT command set over the module’s asynchronous serial interface. This software utilizes only a limited subset of these AT commands.
 
 The AT command protocol is fundamentally inadequate for reliable and verifiable communication and presents intrinsic limitations when employed for robust operations. Originally designed for simple control of modems, the AT protocol is inherently textual and lacks the formal structure of communication protocols that utilize packetized data exchange.
 
@@ -286,6 +288,32 @@ Returns:
 
 ---
 
+#### `ping(apn=None, domain=None, timeout=10)`
+
+Perform a ICMP ping.
+
+Parameters:
+
+- `apn` (str): The APN string required for network context activation.
+- `domain` (str): The domain name to ping.
+- `timeout` (int): Maximum duration in seconds to wait for responses (default: 10).
+
+Returns: dict or False
+
+- dict: On success, returns a dictionary summarizing the ICMP ping results with keys:
+
+  - 'local_ip': the device's IP address
+  - 'ip': the target IP address that was pinged (not available if the ping failed)
+  - 'results': (not available is the ping failed) a list of dictionaries, one per ping response, each with:
+
+    - 'seq': sequence number of the ping response
+    - 'ttl': time-to-live value returned in the ICMP response
+    - 'time': round-trip time (RTT) in milliseconds
+
+- `False`: On failure due to command error, timeout, or unexpected responses.
+
+---
+
 #### `http(url, data=None, apn=None, ...)`
 
 Run the HTTP GET method or the HTTP POST method and return retrieved data.
@@ -341,6 +369,22 @@ print(sim800l.http("https://www.google.com/", method="GET", apn="...", use_ssl=T
 
 ---
 
+#### `internet_sync_time(time_server='193.204.114.232', time_zone_quarter=4, apn=None, http_timeout=10, keep_session=False)`
+Connect to the bearer, get the IP address and sync the internal RTC with
+the local time returned by the NTP time server (Network Time Protocol).
+Automatically perform the full PDP context setup.
+Disconnect the bearer at the end (unless keep_session = `True`)
+Reuse the IP session if an IP address is found active.
+- `time_server`: internet time server (IP address string)
+- `time_zone_quarter`: time zone in quarter of hour
+- `http_timeout`: timeout in seconds
+- `keep_session`: `True` to keep the PDP context active at the end
+ *return*: `False` if error, otherwise the returned date (`datetime.datetime`)
+
+Example: "2022-03-09 20:38:09"
+
+---
+
 #### `get_ip(poll_timeout=4)`
 Get the IP address of the PDP context
 
@@ -371,22 +415,6 @@ Activates GPRS PDP context.
 *Returns:*  
 - `True`: Success
 - `False`: Error
-
----
-
-#### `internet_sync_time(time_server='193.204.114.232', time_zone_quarter=4, apn=None, http_timeout=10, keep_session=False)`
-Connect to the bearer, get the IP address and sync the internal RTC with
-the local time returned by the NTP time server (Network Time Protocol).
-Automatically perform the full PDP context setup.
-Disconnect the bearer at the end (unless keep_session = `True`)
-Reuse the IP session if an IP address is found active.
-- `time_server`: internet time server (IP address string)
-- `time_zone_quarter`: time zone in quarter of hour
-- `http_timeout`: timeout in seconds
-- `keep_session`: `True` to keep the PDP context active at the end
- *return*: `False` if error, otherwise the returned date (`datetime.datetime`)
-
-Example: "2022-03-09 20:38:09"
 
 ---
 

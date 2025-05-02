@@ -325,7 +325,7 @@ https://electronics.stackexchange.com/questions/359308/upgrading-firmware-of-sim
 
 https://electronics.stackexchange.com/questions/274065/gsm-module-gets-into-reboot-loop
 
-Incorrect voltage levels may cause serial communication errors (115200,N,8,1 should not get errors with normal power supply).
+Incorrect voltage levels (especially improper grounding) may cause serial communication errors (115200,N,8,1 should not get errors with normal and solid 4V power supply).
 
 Messages like the following might be due to improper power supply at boot:
 
