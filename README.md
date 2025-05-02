@@ -1,9 +1,10 @@
 # Raspberry Pi SIM800L, SIM800C and SIM800H GSM module
 
-[![PyPI](https://img.shields.io/pypi/v/sim800l-gsm-module.svg?maxAge=2592000)](https://pypi.org/project/sim800l-gsm-module)
-[![Python Versions](https://img.shields.io/pypi/pyversions/sim800l-gsm-module.svg)](https://pypi.org/project/sim800l-gsm-module/)
-[![PyPI download month](https://img.shields.io/pypi/dm/sim800l-gsm-module.svg)](https://pypi.python.org/pypi/sim800l-gsm-module/)
-[![GitHub license](https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-blue)](https://raw.githubusercontent.com/Ircama/raspberry-pi-sim800l-gsm-module/master/LICENSE)
+[![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi)](https://www.raspberrypi.com/)
+[![PyPI](https://img.shields.io/pypi/v/sim800l-gsm-module.svg?cacheSeconds=3600)](https://pypi.org/project/sim800l-gsm-module)
+[![Python Versions](https://img.shields.io/pypi/pyversions/sim800l-gsm-module.svg?cacheSeconds=3600)](https://pypi.org/project/sim800l-gsm-module/)
+[![PyPI download month](https://img.shields.io/pypi/dm/sim800l-gsm-module.svg?cacheSeconds=3600)](https://pypi.python.org/pypi/sim800l-gsm-module/)
+[![GitHub license](https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-blue?cacheSeconds=3600)](https://raw.githubusercontent.com/Ircama/sim800l-gsm-module/master/LICENSE)
 
 [SIM800L GSM module](https://www.simcom.com/product/SIM800.html) library for Linux systems like the Raspberry Pi. This library was also successfully tested with SIM800C and should also support SIM800H.
 
@@ -13,24 +14,26 @@ Key features include:
 
 - `send_sms()`: Sends SMS messages, automatically handling multipart when necessary.
 - `read_next_message()`: Retrieves the next SMS, abstracting message type and reassembling multipart content.
-- `http()`: Executes HTTP GET/POST requests, returning response status and payload.
+- `http()`: Executes HTTP and HTTPS GET/POST requests, returning response status and payload.
 - `dns_query()`: Resolves domain names to IPs via the module’s DNS functionality.
+- `ping()`: ICMP ping of a domain name or IP address.
+- `internet_sync_time()`: syncronize the RTC time with the NTP time server and returns the current NTP time.
 
-The library also exposes over 30 methods to configure and query the SIM module, enabling robust control and integration.
+The library also exposes over 30 methods to configure and query the SIM module.
 
 ## AT Protocol issues
 
-This software manages SMS messaging and HTTP operations via the asyncronous serial communication of the SIM800 device, using its proprietary AT command protocol.
+The SIMCom SIM800 series (including models such as SIM800L, SIM800C, SIM800H and others) supports a broad set of cellular and Internet features, all accessible through a proprietary AT command set over the module’s asynchronous serial interface. This software utilizes only a limited subset of these extensive set of AT commands.
 
-The AT command protocol is fundamentally inadequate for reliable and verifiable communication and presents intrinsic limitations when employed for robust operations. Originally designed for simple control of modems, the AT protocol is inherently textual and lacks the formal structure of communication protocols that utilize packetized data exchange.
+The AT command protocol is fundamentally inadequate for reliable and verifiable communication and presents intrinsic limitations when employed for robust operations: it is inherently textual and lacks the formal structure of communication protocols that utilize packetized data exchange.
 
-One critical drawback lies in the nature of message formatting. AT commands are plain-text strings without explicit framing mechanisms. Unlike packet-based protocols, AT messages do not encapsulate data within headers that define payload length, type, or integrity information such as checksums or CRCs. Consequently, parsing and verifying the completeness and correctness of messages becomes error-prone.
+AT commands are plain-text strings without explicit framing mechanisms. Unlike packet-based protocols, AT messages do not encapsulate data within headers that define payload length, type, or integrity information such as checksums or CRCs. Consequently, parsing and verifying the completeness and correctness of messages becomes error-prone.
 
 Moreover, AT-based communication lacks a standardized state machine or signaling mechanisms to indicate distinct phases of a connection lifecycle. Commands that initiate, maintain, or terminate connections must be issued and interpreted in a predefined order, but the protocol itself does not return the transition between these states. This absence of inherent session management results in brittle implementations, where the client must continually probe the status of operations.
 
-This deficiency becomes even more critical with vendor-specific instructions, which introduce proprietary connection setup sequences requiring polling or conditional branching based on context-sensitive responses, and may also include asynchronous "Unsolicited Result Codes" within the textual communication that needs special processing while managing the workflow. Without structured feedback or flags denoting session phases, the client application must rely on loosely coupled, often ambiguous responses to maintain protocol correctness.
+In addition, vendor-specific instructions introduce proprietary connection setup sequences requiring polling or conditional branching based on context-sensitive responses, and may also include asynchronous "Unsolicited Result Codes" within the textual communication that needs special processing while managing the workflow. Without structured feedback or flags denoting session phases, the client application must rely on loosely coupled responses to maintain protocol correctness.
 
-Through an accurately tested heuristic approach, this software attempts to handle all supported operations via the AT protocol in the most robust manner possible, aiming to automatically recover from errors when feasible.
+Through an accurately tested heuristic approach, this software attempts to handle all supported operations via the AT protocol as robustly as possible, with the goal of automatically recovering from errors whenever feasible.
 
 ## Setup
 
@@ -39,7 +42,7 @@ This module only installs on Linux (not on Windows).
 ## Hw Requirements
 
 - Linux system with a UART serial port, or Raspberry Pi with [Raspberry Pi OS](https://en.wikipedia.org/wiki/Raspberry_Pi_OS) (this library has been tested with Buster and Bullseye).
-- External power supply for the SIM800L (using the Raspberry Pi 5V power supply, a standard diode (1N4007) with voltage drop of about 0.6 volts and a 1 F capacitor might work).
+- External power supply for the SIM800L (using the Raspberry Pi 5V power supply, a standard diode (1N4007) with voltage drop of about 0.6 volts and a 1 F capacitor might work). A stable power supply with adequate power is crucial for the correct operation of the module.
 
 ### Installation
 
@@ -67,9 +70,9 @@ Alternatively to the above mentioned installation method, the following steps al
 
 - Run this command:
 
-```shell
-  python3 -m pip install git+https://github.com/Ircama/raspberry-pi-sim800l-gsm-module
-```
+  ```shell
+  python3 -m pip install git+https://github.com/Ircama/sim800l-gsm-module
+  ```
 
 To uninstall:
 
@@ -286,6 +289,32 @@ Returns:
 
 ---
 
+#### `ping(apn=None, domain=None, timeout=10)`
+
+Perform a ICMP ping.
+
+Parameters:
+
+- `apn` (str): The APN string required for network context activation.
+- `domain` (str): The domain name to ping.
+- `timeout` (int): Maximum duration in seconds to wait for responses (default: 10).
+
+Returns: dict or False
+
+- dict: On success, returns a dictionary summarizing the ICMP ping results with keys:
+
+  - 'local_ip': the device's IP address
+  - 'ip': the target IP address that was pinged (not available if the ping failed)
+  - 'results': (not available is the ping failed) a list of dictionaries, one per ping response, each with:
+
+    - 'seq': sequence number of the ping response
+    - 'ttl': time-to-live value returned in the ICMP response
+    - 'time': round-trip time (RTT) in milliseconds
+
+- `False`: On failure due to command error, timeout, or unexpected responses.
+
+---
+
 #### `http(url, data=None, apn=None, ...)`
 
 Run the HTTP GET method or the HTTP POST method and return retrieved data.
@@ -341,6 +370,22 @@ print(sim800l.http("https://www.google.com/", method="GET", apn="...", use_ssl=T
 
 ---
 
+#### `internet_sync_time(time_server='193.204.114.232', time_zone_quarter=4, apn=None, http_timeout=10, keep_session=False)`
+Connect to the bearer, get the IP address and sync the internal RTC with
+the local time returned by the NTP time server (Network Time Protocol).
+Automatically perform the full PDP context setup.
+Disconnect the bearer at the end (unless keep_session = `True`)
+Reuse the IP session if an IP address is found active.
+- `time_server`: internet time server (IP address string)
+- `time_zone_quarter`: time zone in quarter of hour
+- `http_timeout`: timeout in seconds
+- `keep_session`: `True` to keep the PDP context active at the end
+ *return*: `False` if error, otherwise the returned date (`datetime.datetime`)
+
+Example: "2022-03-09 20:38:09"
+
+---
+
 #### `get_ip(poll_timeout=4)`
 Get the IP address of the PDP context
 
@@ -374,35 +419,6 @@ Activates GPRS PDP context.
 
 ---
 
-#### `internet_sync_time(time_server='193.204.114.232', time_zone_quarter=4, apn=None, http_timeout=10, keep_session=False)`
-Connect to the bearer, get the IP address and sync the internal RTC with
-the local time returned by the NTP time server (Network Time Protocol).
-Automatically perform the full PDP context setup.
-Disconnect the bearer at the end (unless keep_session = `True`)
-Reuse the IP session if an IP address is found active.
-- `time_server`: internet time server (IP address string)
-- `time_zone_quarter`: time zone in quarter of hour
-- `http_timeout`: timeout in seconds
-- `keep_session`: `True` to keep the PDP context active at the end
- *return*: `False` if error, otherwise the returned date (`datetime.datetime`)
-
-Example: "2022-03-09 20:38:09"
-
----
-
-#### `query_ip_address(url=None, apn=None, http_timeout=10, keep_session=False)`
-Connect to the bearer, get the IP address and query an internet domain
-name, getting the IP address.
-Automatically perform the full PDP context setup.
-Disconnect the bearer at the end (unless keep_session = `True`)
-Reuse the IP session if an IP address is found active.
-- `url`: internet domain name to be queried
-- `http_timeout`: timeout in seconds
-- `keep_session`: True to keep the PDP context active at the end
- *return*: `False` if error (`None` for module error), otherwise the returned IP address (string)
-
----
-
 ### Query Commands
 
 #### `check_sim()`
@@ -431,6 +447,8 @@ Retrieves the module's internal clock date.
 **Returns:**  
 - `datetime.datetime`: Current date/time.
 - `None`: Module error.
+
+---
 
 #### `get_operator()`
 Gets the current network operator.

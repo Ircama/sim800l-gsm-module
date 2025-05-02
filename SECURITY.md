@@ -6,5 +6,5 @@ Interfacing web backends with HTTP GET/POST requests will send data in plaintext
 
 ## Reporting a Security Bug
 
-The way to report a security bug is to open an [issue](https://github.com/Ircama/raspberry-pi-sim800l-gsm-module/issues) including related information
+The way to report a security bug is to open an [issue](https://github.com/Ircama/sim800l-gsm-module/issues) including related information
 (e.g., reproduction steps, version).

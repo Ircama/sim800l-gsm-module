@@ -35,14 +35,14 @@ Push this tag to the origin, which starts the PyPI publishing workflow (GitHub A
 
 ```shell
 git push origin v0.1.4
-git ls-remote --tags https://github.com/Ircama/raspberry-pi-sim800l-gsm-module # list remote tags
+git ls-remote --tags https://github.com/Ircama/sim800l-gsm-module # list remote tags
 ```
 
-Check the published tag here: https://github.com/Ircama/raspberry-pi-sim800l-gsm-module/tags
+Check the published tag here: https://github.com/Ircama/sim800l-gsm-module/tags
 
 It shall be even with the last commit.
 
-Check the GitHub Action: https://github.com/Ircama/raspberry-pi-sim800l-gsm-module/actions
+Check the GitHub Action: https://github.com/Ircama/sim800l-gsm-module/actions
 
 Check PyPI:
 
@@ -74,7 +74,7 @@ python3 -m pip uninstall -y sim800l-gsm-module
 git tag # list tags
 git tag -d v1.0.0 # remove local tag
 git push --delete origin v1.0.0 # remove remote tag
-git ls-remote --tags https://github.com/Ircama/raspberry-pi-sim800l-gsm-module # list remote tags
+git ls-remote --tags https://github.com/Ircama/sim800l-gsm-module # list remote tags
 ```
 
 Then follow the tagging procedure again to add the tag to the latest commit.

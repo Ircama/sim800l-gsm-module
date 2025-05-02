@@ -681,14 +681,21 @@ class SIM800L:
         self.command('AT+CMGD={}\n'.format(index_id), lines=-1)
         self.check_incoming()
 
-    def dns_query(self, apn=None, domain=None, timeout=10):
+    def dns_query(self, **kwargs):
+        return self.ip_command_query(command="DNS", **kwargs)
+
+    def ping(self, **kwargs):
+        return self.ip_command_query(command="PING", **kwargs)
+
+    def ip_command_query(self, command=None, apn=None, domain=None, timeout=10):
         """
-        Perform a DNS query.
+        Perform a PING (command="PING"), or a DNS query (command="DNS").
 
         :param apn: (str) The APN string required for network context activation.
         :param domain: (str) The domain name to resolve.
         :param  timeout: (int) Maximum duration in seconds to wait for responses (default: 10).
 
+        if command=="DNS":
         :return: dict or False or None
             dict: On success, returns a dictionary with keys:
                   - 'domain': resolved domain name
@@ -698,6 +705,29 @@ class SIM800L:
                   - 'secondary_dns': Secondary DNS server used for the query
             False: On failure due to command error, timeout, or unexpected responses.
             None: If the DNS query completes but no result is found (domain not resolved).
+            False if error.
+
+        if command=="PING":
+        :return: dict or False
+            dict: On success, returns a dictionary summarizing the ICMP ping results with keys:
+                  - 'local_ip': the device's IP address
+                  - 'ip': the target IP address that was pinged (not available if the ping failed)
+                  - 'results': a list of dictionaries, one per ping response, each with:
+                      - 'seq': sequence number of the ping response
+                      - 'ttl': time-to-live value returned in the ICMP response
+                      - 'time': round-trip time (RTT) in milliseconds
+                    (not available if the ping failed)
+            False: If error
+
+        AT+CIPSHUT
+        AT+CDNSCFG? (if command=="DNS")
+        AT+CIPSTATUS
+        AT+CSTT="..."
+        AT+CIICR
+        AT+CIFSR
+        AT+CDNSGIP=... (if command=="DNS")
+        AT+CIPPING=... (if command=="PING")
+        AT+CIPSHUT
         """
         def pdp_shut():
             buf = self.command('AT+CIPSHUT\n', lines=-1)
@@ -740,11 +770,20 @@ class SIM800L:
             logging.error("SIM800L - no answer from CIPSTATUS")
             return False
 
+        if command not in ["PING", "DNS"]:
+            logging.critical(
+                "SIM800L - invalid command in ip_command_query(): %s", command
+            )
+            return False
         if apn is None:
-            logging.critical("SIM800L - Missing APN name in dns_query()")
+            logging.critical(
+                "SIM800L - Missing APN name in ip_command_query()"
+            )
             return False
         if domain is None:
-            logging.critical("SIM800L - Missing domain name in dns_query()")
+            logging.critical(
+                "SIM800L - Missing domain name in ip_command_query()"
+            )
             return False
 
         if not pdp_shut():
@@ -770,6 +809,22 @@ class SIM800L:
             return False
         ip_addr = buf.strip()
         logging.debug("SIM800L - Returned IP address: %s", ip_addr)
+        if command == "PING":
+            buf = self.command(
+                'AT+CIPPING=' + domain + "\n", lines=-1, timeout=10
+            )
+            pattern = r'\+CIPPING: (\d+),"([\d.]+)",(\d+),(\d+)'
+            matches = re.findall(pattern, buf)
+            if not matches:
+                pdp_shut()
+                return {"local_ip": ip_addr}
+            ip = matches[0][1]  # Assume IP is the same in all lines
+            results = [
+                {"seq": int(seq), "ttl": int(ttl), "time": int(rtt)}
+                for seq, ip_addr, ttl, rtt in matches
+            ]
+            pdp_shut()
+            return {"local_ip": ip_addr, "ip": ip, "results": results}
         dns_servers = get_dns_servers()
         logging.info("SIM800L - DNS servers: %s", dns_servers)
         if not self.command_ok('AT+CDNSGIP=' + domain):
@@ -780,22 +835,20 @@ class SIM800L:
         while time.monotonic() < expire:
             r = self.check_incoming()
             if not r:
-                logging.debug("SIM800L - no data from CDNSGIP (DNS query)")
+                logging.debug("SIM800L - no data from %s", command)
                 time.sleep(0.1)
                 continue
             try:
                 label = r[0]
                 data = r[1]
             except Exception:
-                logging.critical(
-                    "SIM800L - invalid CDNSGIP data format (DNS query)"
-                )
+                logging.critical("SIM800L - invalid %s data format", command)
                 time.sleep(0.1)
                 continue
             if r == ('GENERIC', None):
                 time.sleep(0.1)
                 continue
-            if label != "DNS":
+            if command == "DNS" and label != "DNS":
                 logging.error(
                     "SIM800L - invalid data while querying DNS: %s", r
                 )
@@ -807,7 +860,7 @@ class SIM800L:
                 return None
             if not isinstance(data, dict):
                 logging.critical(
-                    "SIM800L - invalid data from CDNSGIP (DNS query)"
+                    "SIM800L - invalid data in %s command", command
                 )
                 pdp_shut()
                 return False
@@ -815,7 +868,7 @@ class SIM800L:
             data["local_ip"] = ip_addr
             logging.info("SIM800L - DNS: %s", data)
             return {**data, **dns_servers}
-        logging.error("SIM800L - no answer from CDNSGIP (DNS query)")
+        logging.error("SIM800L - no answer from %s", command)
         pdp_shut()
         return False
 

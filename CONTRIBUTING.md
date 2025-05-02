@@ -12,11 +12,11 @@ https://help.github.com/articles/about-pull-requests/
 
 First contributors can follow a [tutorial page](https://github.com/firstcontributions/first-contributions).
 
-Please discuss the change you wish to make via an [issue](https://github.com/Ircama/raspberry-pi-sim800l-gsm-module/issues) before developing a pull request.
+Please discuss the change you wish to make via an [issue](https://github.com/Ircama/sim800l-gsm-module/issues) before developing a pull request.
 
 # Bugs
 
-You can help to report bugs by filing an [issue](https://github.com/Ircama/raspberry-pi-sim800l-gsm-module/issues) on the software or on the documentation.
+You can help to report bugs by filing an [issue](https://github.com/Ircama/sim800l-gsm-module/issues) on the software or on the documentation.
 
 # Code of Conduct
 
