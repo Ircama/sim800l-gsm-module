@@ -63,7 +63,7 @@ static int disable_netlight = FALSE;
 void set_speed(int fd, int speed);
 int set_Parity(int fd,int databits,int stopbits,int parity,int time);
 int OpenDev(char *Dev);
-void initcom(char *dev,int boad,int datelen, int stoplen,int parity);
+void initcom(char *dev, int baud, int datelen, int stoplen, int parity);
 int comm_init(char *dev);
 
 int print_version(int disable_netlight, int shutdown, int com_fd) {
@@ -605,12 +605,13 @@ int main(int argc, char *argv[])
 
 }  // of main
 
-void initcom(char *dev,int boad,int datelen, int stoplen,int parity)
+void initcom(char *dev,int baud, int datelen, int stoplen, int parity)
 {
 	
+    fprintf(stderr, "Using BAUD %d,%d,%d,%c\n", baud, datelen, stoplen, parity);
 	com_fd = OpenDev(dev);
 	if (com_fd>0)
-		set_speed(com_fd,boad);
+		set_speed(com_fd, baud);
 	else
 	{
 		fprintf(stderr, "Can't Open Serial Port!\n");
